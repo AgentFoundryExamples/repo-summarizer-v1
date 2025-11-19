@@ -30,8 +30,8 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
     """
     imports = []
     
-    # Match 'import module' and 'import module as alias'
-    import_pattern = r'^\s*import\s+([\w.]+)(?:\s+as\s+\w+)?'
+    # Match 'import module' statements - captures all modules in comma-separated list
+    import_pattern = r'^\s*import\s+([\w.,\s]+?)(?:\s*#.*)?$'
     
     # Match 'from module import name' - captures both module and imported names
     from_pattern = r'^\s*from\s+([\w.]+)\s+import\s+([\w\s,*]+)'
@@ -44,8 +44,19 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
         # Check for 'import' statement
         match = re.match(import_pattern, line)
         if match:
-            module = match.group(1)
-            imports.append(module)
+            # Parse comma-separated modules (e.g., "import os, sys, json")
+            modules_str = match.group(1)
+            # Split by comma and process each module
+            for module_part in modules_str.split(','):
+                module_part = module_part.strip()
+                if not module_part:
+                    continue
+                # Handle "module as alias" - extract just the module name
+                if ' as ' in module_part:
+                    module = module_part.split(' as ')[0].strip()
+                else:
+                    module = module_part
+                imports.append(module)
             continue
         
         # Check for 'from' statement
@@ -92,8 +103,15 @@ def _parse_js_imports(content: str, file_path: Path) -> List[str]:
     """
     imports = []
     
+    # Remove comments to avoid false matches
+    # Remove single-line comments
+    content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
+    # Remove multi-line comments
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    
     # Match ES6 imports: import ... from 'module' or import ... from "module"
-    es6_pattern = r'''import\s+(?:[\w\s{},*]+\s+from\s+)?['"]([^'"]+)['"]'''
+    # This handles multi-line imports by matching across newlines
+    es6_pattern = r'''import\s+(?:[\w\s{},*\n]+\s+from\s+)?['"]([^'"]+)['"]'''
     
     # Match CommonJS require: require('module') or require("module")
     require_pattern = r'''require\s*\(['"]([^'"]+)['"]\)'''
@@ -101,26 +119,20 @@ def _parse_js_imports(content: str, file_path: Path) -> List[str]:
     # Match dynamic imports: import('module') or import("module")
     dynamic_pattern = r'''import\s*\(['"]([^'"]+)['"]\)'''
     
-    for line in content.split('\n'):
-        # Skip comments (simple check)
-        stripped = line.strip()
-        if stripped.startswith('//') or stripped.startswith('/*') or stripped.startswith('*'):
-            continue
-        
-        # Find ES6 imports
-        for match in re.finditer(es6_pattern, line):
-            module = match.group(1)
-            imports.append(module)
-        
-        # Find CommonJS require
-        for match in re.finditer(require_pattern, line):
-            module = match.group(1)
-            imports.append(module)
-        
-        # Find dynamic imports
-        for match in re.finditer(dynamic_pattern, line):
-            module = match.group(1)
-            imports.append(module)
+    # Find ES6 imports (multi-line safe)
+    for match in re.finditer(es6_pattern, content):
+        module = match.group(1)
+        imports.append(module)
+    
+    # Find CommonJS require
+    for match in re.finditer(require_pattern, content):
+        module = match.group(1)
+        imports.append(module)
+    
+    # Find dynamic imports
+    for match in re.finditer(dynamic_pattern, content):
+        module = match.group(1)
+        imports.append(module)
     
     return imports
 

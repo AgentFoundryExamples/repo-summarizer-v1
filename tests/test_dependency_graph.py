@@ -79,6 +79,26 @@ from collections import OrderedDict as OD
         assert 'pandas' in imports
         assert 'collections' in imports
     
+    def test_comma_separated_imports(self, tmp_path):
+        """Test parsing comma-separated import statements."""
+        content = """
+import os, sys, json
+import pathlib, typing
+import collections, itertools as it, functools
+"""
+        file_path = tmp_path / "test.py"
+        imports = _parse_python_imports(content, file_path)
+        
+        # All modules should be captured
+        assert 'os' in imports
+        assert 'sys' in imports
+        assert 'json' in imports
+        assert 'pathlib' in imports
+        assert 'typing' in imports
+        assert 'collections' in imports
+        assert 'itertools' in imports
+        assert 'functools' in imports
+    
     def test_ignore_comments(self, tmp_path):
         """Test that comments are ignored."""
         content = """
@@ -184,6 +204,32 @@ const m4 = require('single-require');
         assert 'single-quotes' in imports
         assert 'double-require' in imports
         assert 'single-require' in imports
+    
+    def test_multiline_imports(self, tmp_path):
+        """Test parsing multi-line import statements."""
+        content = """
+import {
+  Foo,
+  Bar,
+  Baz
+} from './lib';
+
+import {
+  Component
+} from 'react';
+
+const {
+  util1,
+  util2
+} = require('./utils');
+"""
+        file_path = tmp_path / "test.js"
+        imports = _parse_js_imports(content, file_path)
+        
+        # Should capture modules even when spread across multiple lines
+        assert './lib' in imports
+        assert 'react' in imports
+        assert './utils' in imports
 
 
 class TestResolvePythonImport:
