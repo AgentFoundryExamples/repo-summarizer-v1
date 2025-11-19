@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 
 from repo_analyzer.tree_report import generate_tree_report, TreeReportError
 from repo_analyzer.file_summary import generate_file_summaries, FileSummaryError
+from repo_analyzer.dependency_graph import generate_dependency_report, DependencyGraphError
 
 
 DEFAULT_CONFIG_FILE = "repo-analyzer.config.json"
@@ -331,8 +332,15 @@ def run_scan(config: Dict[str, Any]) -> int:
             dry_run=dry_run
         )
         
-        # TODO: Hook points for other generators
-        # - Dependency generator: generate_dependencies(output_dir, dry_run)
+        # Generate dependency graph
+        generate_dependency_report(
+            root_path=repo_root,
+            output_dir=output_dir,
+            include_patterns=include_patterns,
+            exclude_patterns=all_exclude_patterns,
+            exclude_dirs=exclude_dirs,
+            dry_run=dry_run
+        )
         
         if dry_run:
             print("\n[DRY RUN] Scan complete - no files were written")
@@ -341,7 +349,7 @@ def run_scan(config: Dict[str, Any]) -> int:
         
         return 0
     
-    except (ConfigurationError, PathValidationError, TreeReportError, FileSummaryError) as e:
+    except (ConfigurationError, PathValidationError, TreeReportError, FileSummaryError, DependencyGraphError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except Exception as e:
