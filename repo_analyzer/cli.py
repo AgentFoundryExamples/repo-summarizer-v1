@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from repo_analyzer.tree_report import generate_tree_report, TreeReportError
+from repo_analyzer.file_summary import generate_file_summaries, FileSummaryError
 
 
 DEFAULT_CONFIG_FILE = "repo-analyzer.config.json"
@@ -282,8 +283,26 @@ def run_scan(config: Dict[str, Any]) -> int:
             dry_run=dry_run
         )
         
+        # Generate file summaries
+        file_summary_config = config.get('file_summary_config', {})
+        include_patterns = file_summary_config.get('include_patterns', [])
+        
+        # Build exclude_dirs from tree_config exclude_patterns
+        exclude_dirs = set()
+        for pattern in exclude_patterns:
+            if '*' not in pattern:
+                # Non-wildcard patterns are treated as directory names
+                exclude_dirs.add(pattern)
+        
+        generate_file_summaries(
+            root_path=repo_root,
+            output_dir=output_dir,
+            include_patterns=include_patterns,
+            exclude_dirs=exclude_dirs,
+            dry_run=dry_run
+        )
+        
         # TODO: Hook points for other generators
-        # - File summary generator: generate_file_summaries(output_dir, dry_run)
         # - Dependency generator: generate_dependencies(output_dir, dry_run)
         
         if dry_run:
@@ -293,7 +312,7 @@ def run_scan(config: Dict[str, Any]) -> int:
         
         return 0
     
-    except (ConfigurationError, PathValidationError, TreeReportError) as e:
+    except (ConfigurationError, PathValidationError, TreeReportError, FileSummaryError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except Exception as e:
