@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 from repo_analyzer.tree_report import generate_tree_report, TreeReportError
+from repo_analyzer.file_summary import generate_file_summaries, FileSummaryError
 
 
 DEFAULT_CONFIG_FILE = "repo-analyzer.config.json"
@@ -209,7 +210,7 @@ This document provides an overview of the repository analysis results.
 See [tree.md](tree.md) for the complete directory structure.
 
 ### File Summaries
-See [file-summaries/](file-summaries/) for individual file analysis reports.
+See [file-summaries.md](file-summaries.md) for individual file analysis reports.
 
 ### Dependencies
 See [dependencies.json](dependencies.json) for dependency information.
@@ -218,7 +219,8 @@ See [dependencies.json](dependencies.json) for dependency information.
 
 - **tree.md**: Complete directory tree structure
 - **tree.json**: Machine-readable tree structure
-- **file-summaries/**: Directory containing per-file analysis
+- **file-summaries.md**: Markdown report with file analysis
+- **file-summaries.json**: Machine-readable file summaries
 - **dependencies.json**: Dependency graph and package information
 
 ## Analysis Metadata
@@ -282,8 +284,54 @@ def run_scan(config: Dict[str, Any]) -> int:
             dry_run=dry_run
         )
         
+        # Generate file summaries
+        file_summary_config = config.get('file_summary_config', {})
+        include_patterns = file_summary_config.get('include_patterns', [])
+        
+        # Get exclude patterns from file_summary_config
+        file_exclude_patterns = file_summary_config.get('exclude_patterns', [])
+        
+        # Import default excludes from tree_report
+        from repo_analyzer.tree_report import DEFAULT_EXCLUDES
+        
+        # Start with default excludes to handle the "no config" case
+        # This ensures noise directories are ignored by default
+        all_exclude_patterns = list(DEFAULT_EXCLUDES)
+        
+        # Add tree_config exclude patterns
+        all_exclude_patterns.extend(exclude_patterns)
+        
+        # Add file_summary_config exclude patterns
+        all_exclude_patterns.extend(file_exclude_patterns)
+        
+        # Exclude the output directory to avoid scanning generated reports
+        try:
+            output_rel = output_dir.relative_to(repo_root)
+            # Add as both a pattern and to exclude_dirs if it's a simple name
+            all_exclude_patterns.append(str(output_rel.as_posix()))
+        except ValueError:
+            # output_dir is not relative to repo_root (e.g., absolute path outside repo)
+            # In this case, it won't be scanned anyway
+            pass
+        
+        # Build exclude_dirs from all exclude patterns
+        # Only add patterns that are bare directory names (no path separator or wildcard)
+        exclude_dirs = set()
+        for pattern in all_exclude_patterns:
+            if '*' not in pattern and '/' not in pattern:
+                # Simple directory name like "node_modules", "__pycache__"
+                exclude_dirs.add(pattern)
+        
+        generate_file_summaries(
+            root_path=repo_root,
+            output_dir=output_dir,
+            include_patterns=include_patterns,
+            exclude_patterns=all_exclude_patterns,
+            exclude_dirs=exclude_dirs,
+            dry_run=dry_run
+        )
+        
         # TODO: Hook points for other generators
-        # - File summary generator: generate_file_summaries(output_dir, dry_run)
         # - Dependency generator: generate_dependencies(output_dir, dry_run)
         
         if dry_run:
@@ -293,7 +341,7 @@ def run_scan(config: Dict[str, Any]) -> int:
         
         return 0
     
-    except (ConfigurationError, PathValidationError, TreeReportError) as e:
+    except (ConfigurationError, PathValidationError, TreeReportError, FileSummaryError) as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     except Exception as e:
