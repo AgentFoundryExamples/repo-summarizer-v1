@@ -5,6 +5,7 @@ Command-line interface for the repository analyzer.
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -22,6 +23,26 @@ class ConfigurationError(Exception):
 class PathValidationError(Exception):
     """Raised when path validation fails."""
     pass
+
+
+def get_repository_root() -> Optional[Path]:
+    """
+    Get the repository root directory using git.
+    
+    Returns:
+        Path to repository root, or None if not in a git repository
+    """
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return Path(result.stdout.strip()).resolve()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Not in a git repository or git not available
+        return None
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -108,15 +129,17 @@ def validate_output_path(output_dir: str) -> Path:
     try:
         path = Path(output_dir).resolve()
         
-        # Ensure path is not outside working directory
-        # This prevents writing to arbitrary locations on the filesystem
-        cwd = Path.cwd().resolve()
+        # Get repository root, fall back to current working directory if not in a git repo
+        repo_root = get_repository_root()
+        if repo_root is None:
+            # Not in a git repository, use current working directory as boundary
+            repo_root = Path.cwd().resolve()
         
-        # Check if path is relative to cwd (i.e., inside the repository)
+        # Check if path is relative to repo root (i.e., inside the repository)
         try:
-            path.relative_to(cwd)
+            path.relative_to(repo_root)
         except ValueError:
-            # Path is outside cwd - reject regardless of whether input was absolute or relative
+            # Path is outside repo - reject regardless of whether input was absolute or relative
             raise PathValidationError(
                 f"Output path outside repository is not allowed: {output_dir}"
             )
