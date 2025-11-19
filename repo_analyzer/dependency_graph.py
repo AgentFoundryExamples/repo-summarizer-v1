@@ -30,13 +30,49 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
     """
     imports = []
     
+    # Helper function to filter out lines that are in strings/docstrings
+    def _filter_string_content(content: str) -> List[Tuple[int, str]]:
+        """
+        Filter out content inside strings and return list of (line_num, line) tuples
+        that contain actual code (not strings/docstrings).
+        """
+        lines = content.split('\n')
+        filtered = []
+        in_triple_single = False
+        in_triple_double = False
+        
+        for i, line in enumerate(lines):
+            # Track multi-line string state
+            if '"""' in line:
+                count = line.count('"""')
+                # Toggle state for each triple quote
+                for _ in range(count):
+                    in_triple_double = not in_triple_double
+            if "'''" in line:
+                count = line.count("'''")
+                for _ in range(count):
+                    in_triple_single = not in_triple_single
+            
+            # Only include lines not in multi-line strings
+            if not in_triple_single and not in_triple_double:
+                # Additional check: skip if this line appears to be a single-line string
+                stripped = line.strip()
+                # Simple heuristic: if line starts with a quote, it's likely a string
+                if not (stripped.startswith('"') and not stripped.startswith('"""')) and \
+                   not (stripped.startswith("'") and not stripped.startswith("'''")):
+                    filtered.append((i, line))
+        
+        return filtered
+    
+    # Filter out string content first
+    code_lines = _filter_string_content(content)
+    
     # Pre-process content to handle line continuations and parenthesized imports
     # Join lines that are part of multi-line import statements
-    lines = content.split('\n')
     processed_lines = []
     i = 0
-    while i < len(lines):
-        line = lines[i]
+    while i < len(code_lines):
+        line_num, line = code_lines[i]
         stripped = line.strip()
         
         # Skip comment lines
@@ -52,8 +88,8 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
             # Check if there's a parenthesis that needs to be closed
             if '(' in accumulated and ')' not in accumulated:
                 i += 1
-                while i < len(lines):
-                    next_line = lines[i]
+                while i < len(code_lines):
+                    _, next_line = code_lines[i]
                     accumulated += ' ' + next_line.strip()
                     if ')' in next_line:
                         break
@@ -62,8 +98,8 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
             elif accumulated.rstrip().endswith('\\'):
                 accumulated = accumulated.rstrip()[:-1]  # Remove the backslash
                 i += 1
-                while i < len(lines):
-                    next_line = lines[i]
+                while i < len(code_lines):
+                    _, next_line = code_lines[i]
                     accumulated += ' ' + next_line.strip()
                     if not next_line.rstrip().endswith('\\'):
                         break
@@ -513,7 +549,8 @@ def build_dependency_graph(
             'type': 'file'
         })
     
-    # Create edges
+    # Create edges (deduplicate by source-target pair)
+    edge_set = set()  # Track unique (source, target) pairs
     for source_file, dependencies in dependency_map.items():
         try:
             source_rel = source_file.relative_to(root_path).as_posix()
@@ -528,10 +565,13 @@ def build_dependency_graph(
             
             # Only create edge if target is in our scanned files
             if dep_file in all_files:
-                edges.append({
-                    'source': source_rel,
-                    'target': target_rel
-                })
+                edge_pair = (source_rel, target_rel)
+                if edge_pair not in edge_set:
+                    edge_set.add(edge_pair)
+                    edges.append({
+                        'source': source_rel,
+                        'target': target_rel
+                    })
     
     graph_data = {
         'nodes': nodes,

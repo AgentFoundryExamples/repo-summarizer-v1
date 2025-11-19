@@ -176,6 +176,32 @@ import os, sys, \\
         assert 'os' in imports
         assert 'sys' in imports
         assert 'json' in imports
+    
+    def test_skip_imports_in_strings(self, tmp_path):
+        """Test that import-like text in strings/docstrings is ignored."""
+        content = '''
+"""
+This is a docstring that mentions:
+from . import utils
+import os
+"""
+regular_string = "from pathlib import Path"
+another = 'import sys'
+# Real imports below
+import json
+from typing import List
+'''
+        file_path = tmp_path / "test.py"
+        imports = _parse_python_imports(content, file_path)
+        
+        # Should only capture the real imports at the end
+        assert 'json' in imports
+        assert 'typing.List' in imports
+        # Should NOT capture the ones in strings/docstrings
+        assert 'utils' not in imports
+        assert 'os' not in imports
+        assert 'pathlib.Path' not in imports
+        assert 'sys' not in imports
 
 
 class TestParseJSImports:
@@ -701,6 +727,32 @@ class TestBuildDependencyGraph:
         paths = {node['id'] for node in graph_data['nodes']}
         assert 'main.py' in paths
         assert 'src/utils.py' in paths
+    
+    def test_deduplicates_edges(self, tmp_path):
+        """Test that duplicate edges are deduplicated."""
+        # Create a file that imports the same module multiple times
+        (tmp_path / "utils.py").write_text("# Utils module")
+        main = tmp_path / "main.py"
+        main.write_text("""
+# Import the same module multiple times
+from . import utils
+from . import utils  # Again
+import utils  # Third time
+""")
+        
+        graph_data, errors = build_dependency_graph(
+            tmp_path,
+            include_patterns=['*.py']
+        )
+        
+        # Count edges from main.py to utils.py
+        edges_to_utils = [
+            e for e in graph_data['edges']
+            if e['source'] == 'main.py' and e['target'] == 'utils.py'
+        ]
+        
+        # Should only have one edge despite multiple imports
+        assert len(edges_to_utils) == 1
 
 
 class TestGenerateDependencyReport:
