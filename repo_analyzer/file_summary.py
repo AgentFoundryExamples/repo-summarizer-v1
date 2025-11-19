@@ -297,6 +297,7 @@ def generate_file_summaries(
     root_path: Path,
     output_dir: Path,
     include_patterns: Optional[List[str]] = None,
+    exclude_patterns: Optional[List[str]] = None,
     exclude_dirs: Optional[Set[str]] = None,
     dry_run: bool = False
 ) -> None:
@@ -307,6 +308,7 @@ def generate_file_summaries(
         root_path: Root directory to scan
         output_dir: Directory to write output files
         include_patterns: List of patterns to include (e.g., ['*.py', '*.js'])
+        exclude_patterns: List of patterns to exclude (e.g., ['*.pyc', 'test_*'])
         exclude_dirs: Set of directory names to skip
         dry_run: If True, only log intent without writing files
     
@@ -315,7 +317,7 @@ def generate_file_summaries(
     """
     try:
         # Scan for matching files
-        files = scan_files(root_path, include_patterns, exclude_dirs=exclude_dirs)
+        files = scan_files(root_path, include_patterns, exclude_patterns, exclude_dirs)
         
         if not files:
             if dry_run:

@@ -571,3 +571,63 @@ class TestGenerateFileSummaries:
         for entry in data['files']:
             assert len(entry['summary']) > 0
             assert entry['language'] in entry['summary'] or 'Unknown' not in entry['language']
+    
+    def test_exclude_patterns(self, tmp_path):
+        """Test that exclude_patterns parameter excludes matching files."""
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        (source / 'main.py').touch()
+        (source / 'test_main.py').touch()
+        (source / 'utils.pyc').touch()
+        (source / 'config.py').touch()
+        
+        output = tmp_path / 'output'
+        output.mkdir()
+        
+        # Exclude test files and compiled files
+        generate_file_summaries(
+            source,
+            output,
+            include_patterns=['*.py', '*.pyc'],
+            exclude_patterns=['test_*', '*.pyc']
+        )
+        
+        json_file = output / 'file-summaries.json'
+        data = json.loads(json_file.read_text())
+        
+        # Should only have main.py and config.py
+        paths = {entry['path'] for entry in data['files']}
+        assert paths == {'main.py', 'config.py'}
+        assert 'test_main.py' not in paths
+        assert 'utils.pyc' not in paths
+    
+    def test_nested_exclude_directories(self, tmp_path):
+        """Test that nested directory exclusions work correctly."""
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        (source / 'main.py').touch()
+        
+        # Create nested directory structure
+        build_dir = source / 'docs' / '_build'
+        build_dir.mkdir(parents=True)
+        (build_dir / 'generated.py').touch()
+        
+        output = tmp_path / 'output'
+        output.mkdir()
+        
+        # Exclude _build directory
+        generate_file_summaries(
+            source,
+            output,
+            include_patterns=['*.py'],
+            exclude_dirs={'_build'}
+        )
+        
+        json_file = output / 'file-summaries.json'
+        data = json.loads(json_file.read_text())
+        
+        # Should only have main.py, not generated.py
+        assert data['total_files'] == 1
+        assert data['files'][0]['path'] == 'main.py'

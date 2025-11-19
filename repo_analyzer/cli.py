@@ -287,17 +287,28 @@ def run_scan(config: Dict[str, Any]) -> int:
         file_summary_config = config.get('file_summary_config', {})
         include_patterns = file_summary_config.get('include_patterns', [])
         
+        # Get exclude patterns from file_summary_config, fallback to tree_config
+        file_exclude_patterns = file_summary_config.get('exclude_patterns', [])
+        
         # Build exclude_dirs from tree_config exclude_patterns
+        # Extract just the directory names (last component) for os.walk matching
         exclude_dirs = set()
         for pattern in exclude_patterns:
             if '*' not in pattern:
-                # Non-wildcard patterns are treated as directory names
-                exclude_dirs.add(pattern)
+                # Non-wildcard patterns: extract directory name
+                # For patterns like "docs/_build", we want just "_build"
+                # For simple names like "node_modules", keep as-is
+                dir_name = pattern.split('/')[-1] if '/' in pattern else pattern
+                exclude_dirs.add(dir_name)
+        
+        # Combine all exclude patterns for glob matching
+        all_exclude_patterns = list(exclude_patterns) + file_exclude_patterns
         
         generate_file_summaries(
             root_path=repo_root,
             output_dir=output_dir,
             include_patterns=include_patterns,
+            exclude_patterns=all_exclude_patterns,
             exclude_dirs=exclude_dirs,
             dry_run=dry_run
         )
