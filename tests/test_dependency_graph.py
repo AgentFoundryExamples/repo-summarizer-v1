@@ -46,9 +46,28 @@ from repo_analyzer.tree_report import generate_tree_report
         file_path = tmp_path / "test.py"
         imports = _parse_python_imports(content, file_path)
         
-        assert 'pathlib' in imports
-        assert 'typing' in imports
-        assert 'repo_analyzer.tree_report' in imports
+        # Should capture module.submodule for each imported name
+        assert 'pathlib.Path' in imports
+        assert 'typing.Dict' in imports
+        assert 'typing.List' in imports
+        assert 'repo_analyzer.tree_report.generate_tree_report' in imports
+    
+    def test_from_import_submodules(self, tmp_path):
+        """Test parsing from...import statements captures submodules."""
+        content = """
+from mypackage import module1, module2
+from pkg.subpkg import helper
+from collections import OrderedDict, defaultdict
+"""
+        file_path = tmp_path / "test.py"
+        imports = _parse_python_imports(content, file_path)
+        
+        # Should capture each imported name as a submodule
+        assert 'mypackage.module1' in imports
+        assert 'mypackage.module2' in imports
+        assert 'pkg.subpkg.helper' in imports
+        assert 'collections.OrderedDict' in imports
+        assert 'collections.defaultdict' in imports
     
     def test_relative_imports(self, tmp_path):
         """Test parsing relative imports."""
@@ -77,7 +96,7 @@ from collections import OrderedDict as OD
         
         assert 'numpy' in imports
         assert 'pandas' in imports
-        assert 'collections' in imports
+        assert 'collections.OrderedDict' in imports
     
     def test_comma_separated_imports(self, tmp_path):
         """Test parsing comma-separated import statements."""
@@ -134,9 +153,12 @@ import os, sys, \\
         imports = _parse_python_imports(content, file_path)
         
         # Should capture all modules from multiline imports
-        assert 'typing' in imports
-        assert 'collections' in imports
-        assert 'pathlib' in imports
+        assert 'typing.Dict' in imports
+        assert 'typing.List' in imports
+        assert 'collections.OrderedDict' in imports
+        assert 'collections.defaultdict' in imports
+        assert 'pathlib.Path' in imports
+        assert 'pathlib.PurePath' in imports
         # Comma-separated imports with line continuation
         assert 'os' in imports
         assert 'sys' in imports

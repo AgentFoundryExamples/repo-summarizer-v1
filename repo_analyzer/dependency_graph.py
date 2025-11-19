@@ -131,8 +131,18 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
                     else:
                         imports.append(f"{module}{name}")
             else:
-                # For absolute imports, just use the module
-                imports.append(module)
+                # For absolute imports, combine module with imported names
+                # e.g., "from pkg import mod" should resolve to "pkg.mod"
+                names = [n.strip() for n in imported_names.split(',')]
+                for name in names:
+                    # Skip wildcard imports - just use the base module
+                    if name == '*':
+                        imports.append(module)
+                        continue
+                    # Remove 'as alias' part if present
+                    name = name.split()[0] if ' ' in name else name
+                    # Combine module with imported name
+                    imports.append(f"{module}.{name}")
     
     return imports
 
