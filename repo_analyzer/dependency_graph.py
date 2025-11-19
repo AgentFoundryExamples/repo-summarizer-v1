@@ -233,20 +233,35 @@ def _parse_js_imports(content: str, file_path: Path) -> List[str]:
     # Match dynamic imports: import('module') or import("module")
     dynamic_pattern = r'''import\s*\(['"]([^'"]+)['"]\)'''
     
+    # Helper function to check if a position is inside a string literal
+    def is_in_string(text: str, pos: int) -> bool:
+        """Check if position is inside a string literal."""
+        # Count quotes before this position
+        before = text[:pos]
+        # Check for each type of quote
+        in_single = before.count("'") % 2 == 1
+        in_double = before.count('"') % 2 == 1
+        in_template = before.count('`') % 2 == 1
+        return in_single or in_double or in_template
+    
     # Find ES6 imports (multi-line safe)
     for match in re.finditer(es6_pattern, content):
-        module = match.group(1)
-        imports.append(module)
+        # Check if this match is inside a string literal
+        if not is_in_string(content, match.start()):
+            module = match.group(1)
+            imports.append(module)
     
     # Find CommonJS require
     for match in re.finditer(require_pattern, content):
-        module = match.group(1)
-        imports.append(module)
+        if not is_in_string(content, match.start()):
+            module = match.group(1)
+            imports.append(module)
     
     # Find dynamic imports
     for match in re.finditer(dynamic_pattern, content):
-        module = match.group(1)
-        imports.append(module)
+        if not is_in_string(content, match.start()):
+            module = match.group(1)
+            imports.append(module)
     
     return imports
 

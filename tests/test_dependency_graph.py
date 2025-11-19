@@ -322,6 +322,28 @@ import bar from './bar';
         # Should capture imports even after URL strings
         assert './foo' in imports
         assert './bar' in imports
+    
+    def test_skip_imports_in_strings(self, tmp_path):
+        """Test that import-like text in strings is ignored."""
+        content = """
+const msg = "to install run import './fake'";
+const docs = 'The code shows: require("./fake-require")';
+const template = `Example: import { Foo } from './fake-template'`;
+
+// Real imports
+import real from './real-module';
+const realReq = require('./real-require');
+"""
+        file_path = tmp_path / "test.js"
+        imports = _parse_js_imports(content, file_path)
+        
+        # Should only capture the real imports
+        assert './real-module' in imports
+        assert './real-require' in imports
+        # Should NOT capture the fake ones in strings
+        assert './fake' not in imports
+        assert './fake-require' not in imports
+        assert './fake-template' not in imports
 
 
 class TestResolvePythonImport:
