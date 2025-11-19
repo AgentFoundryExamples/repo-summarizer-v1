@@ -376,6 +376,29 @@ class TestResolvePythonImport:
         resolved = _resolve_python_import('nonexistent', source_file, tmp_path)
         assert resolved is None
     
+    def test_src_layout_package_resolution(self, tmp_path):
+        """Test resolving packages in src/ layout."""
+        # Create src layout: src/myapp/__init__.py and src/myapp/module.py
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        myapp_dir = src_dir / "myapp"
+        myapp_dir.mkdir()
+        (myapp_dir / "__init__.py").touch()
+        (myapp_dir / "module.py").touch()
+        
+        source_file = tmp_path / "main.py"
+        source_file.touch()
+        
+        # Should resolve to src/myapp/__init__.py
+        resolved = _resolve_python_import('myapp', source_file, tmp_path)
+        assert resolved is not None
+        assert resolved == myapp_dir / "__init__.py"
+        
+        # Should resolve to src/myapp/module.py
+        resolved = _resolve_python_import('myapp.module', source_file, tmp_path)
+        assert resolved is not None
+        assert resolved == myapp_dir / "module.py"
+    
     def test_absolute_import_from_repo_root(self, tmp_path):
         """Test resolving absolute import from repo root."""
         # Create package structure

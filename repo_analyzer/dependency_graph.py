@@ -292,20 +292,34 @@ def _resolve_python_import(
     # Absolute import - try to resolve from repo root
     parts = import_path.split('.')
     
-    # Try to resolve from repo root
-    target = repo_root / parts[0]
+    # Try to resolve from repo root, checking common layout patterns
+    # 1. Direct under repo root
+    # 2. Under src/ directory (common Python layout)
+    # 3. Under lib/ directory (less common but used)
+    target = None
+    search_paths = [
+        repo_root / parts[0],
+        repo_root / 'src' / parts[0],
+        repo_root / 'lib' / parts[0],
+    ]
     
-    # Check if it's a file at the root level (e.g., util.py)
-    if target.with_suffix('.py').exists():
-        # Single-part import like "import util" where util.py is at root
-        if len(parts) == 1:
-            return target.with_suffix('.py')
-        # Multi-part import - the file exists but we need to navigate further
-        # This is unusual but handle it
+    for potential_target in search_paths:
+        # Check if it's a file at this location (e.g., util.py)
+        if potential_target.with_suffix('.py').exists():
+            target = potential_target
+            break
+        # Check if it's a directory (package) at this location
+        if potential_target.exists() and potential_target.is_dir():
+            target = potential_target
+            break
     
-    # Check if it's a package in the repo
-    if not target.exists():
+    # If we didn't find the target in any common location, return None
+    if target is None:
         return None
+    
+    # For single-part imports that are files, return the file
+    if len(parts) == 1 and target.with_suffix('.py').exists():
+        return target.with_suffix('.py')
     
     # Navigate through the parts
     current = target
