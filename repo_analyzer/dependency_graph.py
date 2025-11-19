@@ -299,6 +299,10 @@ def _resolve_python_import(
             # Try as file at this level
             if (current / part).with_suffix('.py').exists():
                 return (current / part).with_suffix('.py')
+            # If we can't find the submodule, fall back to the package's __init__.py
+            # This handles cases like "from pkg import symbol" where symbol is in pkg/__init__.py
+            if (current / '__init__.py').exists():
+                return current / '__init__.py'
             return None
     
     # If we've navigated through all parts, check for __init__.py

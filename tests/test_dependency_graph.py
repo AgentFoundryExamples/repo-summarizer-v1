@@ -349,6 +349,23 @@ class TestResolvePythonImport:
         assert resolved is not None
         assert resolved == package / "module.py"
     
+    def test_package_level_symbol_resolves_to_init(self, tmp_path):
+        """Test that package-level symbols resolve to __init__.py."""
+        # Create package with only __init__.py (symbol defined there)
+        package = tmp_path / "mypackage"
+        package.mkdir()
+        (package / "__init__.py").touch()
+        
+        source_file = tmp_path / "main.py"
+        source_file.touch()
+        
+        # "from mypackage import symbol" should resolve to mypackage/__init__.py
+        # since symbol.py doesn't exist
+        resolved = _resolve_python_import('mypackage.symbol', source_file, tmp_path)
+        
+        assert resolved is not None
+        assert resolved == package / "__init__.py"
+    
     def test_root_level_module(self, tmp_path):
         """Test resolving root-level module imported absolutely."""
         # Create root-level file
