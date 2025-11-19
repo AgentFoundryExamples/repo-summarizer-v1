@@ -160,11 +160,32 @@ def _parse_js_imports(content: str, file_path: Path) -> List[str]:
     """
     imports = []
     
-    # Remove comments to avoid false matches
-    # Remove single-line comments
-    content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-    # Remove multi-line comments
+    # Remove comments more carefully to avoid removing // in strings
+    # Remove multi-line comments first
     content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    # Remove single-line comments, but only actual comments (not // in strings)
+    # This is a simplified approach: remove // comments only when they appear after code
+    # More sophisticated parsing would require a full tokenizer
+    lines = []
+    for line in content.split('\n'):
+        # Simple heuristic: if line has quotes before //, keep the whole line
+        # If // appears outside quotes, remove the comment part
+        # This isn't perfect but handles common cases
+        if '//' in line:
+            # Check if // is in a string by looking for quotes
+            before_comment = line.split('//')[0]
+            # Count quotes to determine if // is in a string
+            single_quotes = before_comment.count("'") - before_comment.count("\\'")
+            double_quotes = before_comment.count('"') - before_comment.count('\\"')
+            # If odd number of quotes, // is likely in a string
+            if single_quotes % 2 == 1 or double_quotes % 2 == 1:
+                lines.append(line)
+            else:
+                # Remove the comment part
+                lines.append(before_comment)
+        else:
+            lines.append(line)
+    content = '\n'.join(lines)
     
     # Match ES6 imports: import ... from 'module' or import ... from "module"
     # This handles multi-line imports by matching across newlines
@@ -247,7 +268,10 @@ def _resolve_python_import(
         if module_path:
             parts = module_path.split('.')
         else:
-            # Just dots, no module name (shouldn't happen with our new parser, but handle it)
+            # Just dots, no module name - this is a wildcard import like "from . import *"
+            # Resolve to the package's __init__.py
+            if (current / '__init__.py').exists():
+                return current / '__init__.py'
             return None
         
         # Try to resolve to a file or __init__.py

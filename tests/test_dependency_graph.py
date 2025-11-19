@@ -84,6 +84,19 @@ from ...parent import module
         assert '..config' in imports
         assert '...parent.module' in imports
     
+    def test_relative_wildcard_import(self, tmp_path):
+        """Test parsing relative wildcard imports."""
+        content = """
+from . import *
+from .. import *
+"""
+        file_path = tmp_path / "test.py"
+        imports = _parse_python_imports(content, file_path)
+        
+        # Wildcard imports should just be the dots
+        assert '.' in imports
+        assert '..' in imports
+    
     def test_import_with_alias(self, tmp_path):
         """Test parsing imports with aliases."""
         content = """
@@ -268,6 +281,21 @@ const {
         assert './lib' in imports
         assert 'react' in imports
         assert './utils' in imports
+    
+    def test_urls_in_strings_dont_break_imports(self, tmp_path):
+        """Test that URLs in strings don't break import detection."""
+        content = """
+const url = "http://example.com";
+import foo from './foo';
+const api = 'https://api.example.com';
+import bar from './bar';
+"""
+        file_path = tmp_path / "test.js"
+        imports = _parse_js_imports(content, file_path)
+        
+        # Should capture imports even after URL strings
+        assert './foo' in imports
+        assert './bar' in imports
 
 
 class TestResolvePythonImport:
@@ -284,6 +312,22 @@ class TestResolvePythonImport:
         
         assert resolved is not None
         assert resolved == tmp_path / "module.py"
+    
+    def test_relative_wildcard_import_resolves_to_init(self, tmp_path):
+        """Test that relative wildcard imports resolve to package __init__.py."""
+        # Create package structure
+        package = tmp_path / "mypackage"
+        package.mkdir()
+        (package / "__init__.py").touch()
+        
+        source_file = package / "submodule.py"
+        source_file.touch()
+        
+        # "from . import *" should resolve to mypackage/__init__.py
+        resolved = _resolve_python_import('.', source_file, tmp_path)
+        
+        assert resolved is not None
+        assert resolved == package / "__init__.py"
     
     def test_relative_import_parent(self, tmp_path):
         """Test resolving relative import from parent."""
