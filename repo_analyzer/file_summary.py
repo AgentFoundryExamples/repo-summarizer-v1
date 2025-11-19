@@ -254,6 +254,22 @@ def scan_files(
     matching_files = []
     
     for dirpath, dirnames, filenames in os.walk(root_path, followlinks=False):
+        # Get relative directory path for pattern matching
+        try:
+            rel_dirpath = Path(dirpath).relative_to(root_path).as_posix()
+        except ValueError:
+            rel_dirpath = ""
+        
+        # Check if current directory should be excluded based on patterns
+        if rel_dirpath and exclude_patterns:
+            # Check if the directory path itself matches any exclude pattern
+            # Also check with trailing /* to catch directory-based patterns
+            if (_matches_pattern(rel_dirpath, exclude_patterns) or 
+                _matches_pattern(rel_dirpath + '/*', exclude_patterns)):
+                # Skip this entire directory tree
+                dirnames[:] = []
+                continue
+        
         # Filter out excluded directories (modifies dirnames in-place)
         dirnames[:] = [d for d in dirnames if d not in exclude_dirs]
         

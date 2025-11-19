@@ -631,3 +631,33 @@ class TestGenerateFileSummaries:
         # Should only have main.py, not generated.py
         assert data['total_files'] == 1
         assert data['files'][0]['path'] == 'main.py'
+    
+    def test_directory_exclude_patterns_without_wildcard(self, tmp_path):
+        """Test that directory patterns like 'docs/_build' exclude files during traversal."""
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        (source / 'main.py').touch()
+        
+        # Create nested directory structure
+        build_dir = source / 'docs' / '_build'
+        build_dir.mkdir(parents=True)
+        (build_dir / 'generated.py').touch()
+        
+        output = tmp_path / 'output'
+        output.mkdir()
+        
+        # Exclude using pattern without wildcard (the reported issue)
+        generate_file_summaries(
+            source,
+            output,
+            include_patterns=['*.py'],
+            exclude_patterns=['docs/_build']
+        )
+        
+        json_file = output / 'file-summaries.json'
+        data = json.loads(json_file.read_text())
+        
+        # Should only have main.py, not generated.py from docs/_build
+        assert data['total_files'] == 1
+        assert data['files'][0]['path'] == 'main.py'
