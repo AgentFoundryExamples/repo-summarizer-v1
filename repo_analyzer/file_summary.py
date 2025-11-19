@@ -273,6 +273,9 @@ def scan_files(
         # Filter out excluded directories (modifies dirnames in-place)
         dirnames[:] = [d for d in dirnames if d not in exclude_dirs]
         
+        # Filter out hidden directories (starting with .)
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        
         # Also filter symlinked directories
         dirnames[:] = [d for d in dirnames if not (Path(dirpath) / d).is_symlink()]
         

@@ -312,6 +312,25 @@ class TestScanFiles:
         files = scan_files(tmp_path, include_patterns=['*.py'])
         assert len(files) == 0
     
+    def test_hidden_directories_skipped(self, tmp_path):
+        """Test that hidden directories (starting with .) are skipped."""
+        (tmp_path / 'file.py').touch()
+        
+        # Create hidden directories
+        git_dir = tmp_path / '.git'
+        git_dir.mkdir()
+        (git_dir / 'config.py').touch()
+        
+        venv_dir = tmp_path / '.venv'
+        venv_dir.mkdir()
+        (venv_dir / 'activate.py').touch()
+        
+        files = scan_files(tmp_path, include_patterns=['*.py'])
+        
+        # Should only find file.py, not files in hidden directories
+        assert len(files) == 1
+        assert files[0].name == 'file.py'
+    
     def test_path_based_patterns(self, tmp_path):
         """Test glob patterns that include directory paths."""
         # Create directory structure
