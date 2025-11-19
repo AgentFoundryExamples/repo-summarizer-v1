@@ -116,15 +116,31 @@ import sys
         assert 'sys' in imports
     
     def test_multiline_imports(self, tmp_path):
-        """Test that multiline imports have basic support."""
+        """Test that multiline imports are properly handled."""
         content = """
 from typing import Dict, List
+from collections import (
+    OrderedDict,
+    defaultdict
+)
+from pathlib import (
+    Path,
+    PurePath,
+)
+import os, sys, \\
+    json
 """
         file_path = tmp_path / "test.py"
         imports = _parse_python_imports(content, file_path)
         
-        # Should capture the module for simple single-line cases
+        # Should capture all modules from multiline imports
         assert 'typing' in imports
+        assert 'collections' in imports
+        assert 'pathlib' in imports
+        # Comma-separated imports with line continuation
+        assert 'os' in imports
+        assert 'sys' in imports
+        assert 'json' in imports
 
 
 class TestParseJSImports:

@@ -30,13 +30,60 @@ def _parse_python_imports(content: str, file_path: Path) -> List[str]:
     """
     imports = []
     
+    # Pre-process content to handle line continuations and parenthesized imports
+    # Join lines that are part of multi-line import statements
+    lines = content.split('\n')
+    processed_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # Skip comment lines
+        if stripped.startswith('#'):
+            i += 1
+            continue
+        
+        # Check if this is an import or from statement that might continue
+        if stripped.startswith('import ') or stripped.startswith('from '):
+            # Accumulate lines until we find the end of the statement
+            accumulated = line
+            
+            # Check if there's a parenthesis that needs to be closed
+            if '(' in accumulated and ')' not in accumulated:
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    accumulated += ' ' + next_line.strip()
+                    if ')' in next_line:
+                        break
+                    i += 1
+            # Check for line continuation with backslash
+            elif accumulated.rstrip().endswith('\\'):
+                accumulated = accumulated.rstrip()[:-1]  # Remove the backslash
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    accumulated += ' ' + next_line.strip()
+                    if not next_line.rstrip().endswith('\\'):
+                        break
+                    accumulated = accumulated.rstrip()[:-1]  # Remove the backslash
+                    i += 1
+            
+            processed_lines.append(accumulated)
+        else:
+            processed_lines.append(line)
+        
+        i += 1
+    
     # Match 'import module' statements - captures all modules in comma-separated list
     import_pattern = r'^\s*import\s+([\w.,\s]+?)(?:\s*#.*)?$'
     
     # Match 'from module import name' - captures both module and imported names
-    from_pattern = r'^\s*from\s+([\w.]+)\s+import\s+([\w\s,*]+)'
+    # Updated to handle parentheses and whitespace more flexibly
+    from_pattern = r'^\s*from\s+([\w.]+)\s+import\s+(?:\()?([^)#]+)(?:\))?'
     
-    for line in content.split('\n'):
+    for line in processed_lines:
         # Skip comments
         if line.strip().startswith('#'):
             continue
