@@ -65,32 +65,34 @@ class FileSummaryError(Exception):
     pass
 
 
-def _matches_pattern(filename: str, patterns: List[str]) -> bool:
+def _matches_pattern(path: str, patterns: List[str]) -> bool:
     """
-    Check if a filename matches any of the given patterns.
+    Check if a path matches any of the given glob patterns.
+    
+    Uses Path.match for proper glob semantics, supporting wildcards like:
+    - *.py (files ending in .py)
+    - test_* (files starting with test_)
+    - tests/*.py (Python files in tests directory)
+    - tests/**/*.py (Python files anywhere under tests)
+    - foo?.js (single-character wildcard)
     
     Args:
-        filename: File name to check
+        path: File path (relative or just filename) to check
         patterns: List of glob-style patterns
     
     Returns:
-        True if filename matches any pattern, False otherwise
+        True if path matches any pattern, False otherwise
     """
+    from pathlib import PurePosixPath
+    
+    # Convert to PurePosixPath for consistent matching across platforms
+    path_obj = PurePosixPath(path)
+    
     for pattern in patterns:
-        if pattern.startswith('*'):
-            # Suffix matching (e.g., *.py)
-            suffix = pattern[1:]
-            if filename.endswith(suffix):
-                return True
-        elif pattern.endswith('*'):
-            # Prefix matching (e.g., test*)
-            prefix = pattern[:-1]
-            if filename.startswith(prefix):
-                return True
-        else:
-            # Exact matching
-            if filename == pattern:
-                return True
+        # Use Path.match for proper glob semantics including ** support
+        if path_obj.match(pattern):
+            return True
+    
     return False
 
 
@@ -265,13 +267,25 @@ def scan_files(
             if file_path.is_symlink():
                 continue
             
+            # Get relative path for pattern matching (use POSIX style for consistency)
+            try:
+                rel_path = file_path.relative_to(root_path).as_posix()
+            except ValueError:
+                # If file is not relative to root_path, use the filename
+                rel_path = filename
+            
             # Check include patterns (if any)
-            if include_patterns and not _matches_pattern(filename, include_patterns):
-                continue
+            # Try matching both the relative path and just the filename for flexibility
+            if include_patterns:
+                matches = _matches_pattern(rel_path, include_patterns) or _matches_pattern(filename, include_patterns)
+                if not matches:
+                    continue
             
             # Check exclude patterns
-            if exclude_patterns and _matches_pattern(filename, exclude_patterns):
-                continue
+            if exclude_patterns:
+                excludes = _matches_pattern(rel_path, exclude_patterns) or _matches_pattern(filename, exclude_patterns)
+                if excludes:
+                    continue
             
             matching_files.append(file_path)
     

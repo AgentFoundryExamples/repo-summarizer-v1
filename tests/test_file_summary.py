@@ -44,6 +44,37 @@ class TestMatchesPattern:
         assert _matches_pattern('test_runner.js', patterns) is True
         assert _matches_pattern('config.json', patterns) is True
         assert _matches_pattern('other.txt', patterns) is False
+    
+    def test_path_with_directory(self):
+        """Test pattern matching with directory paths."""
+        # Match files in specific directory (single level)
+        assert _matches_pattern('tests/test_utils.py', ['tests/*.py']) is True
+        assert _matches_pattern('src/utils.py', ['tests/*.py']) is False
+        
+        # Single * doesn't match across directory separators
+        assert _matches_pattern('src/utils.py', ['src/*.py']) is True
+        assert _matches_pattern('src/lib/helper.py', ['src/*.py']) is False
+        
+        # Double ** matches multiple directory levels
+        assert _matches_pattern('src/lib/helper.py', ['src/**/*.py']) is True
+        assert _matches_pattern('tests/unit/test_main.py', ['tests/**/*.py']) is True
+    
+    def test_single_char_wildcard(self):
+        """Test single-character wildcard (?)."""
+        assert _matches_pattern('foo1.js', ['foo?.js']) is True
+        assert _matches_pattern('foo2.js', ['foo?.js']) is True
+        assert _matches_pattern('foo.js', ['foo?.js']) is False
+        assert _matches_pattern('foo12.js', ['foo?.js']) is False
+    
+    def test_complex_patterns(self):
+        """Test more complex glob patterns."""
+        # Character ranges
+        assert _matches_pattern('test1.py', ['test[0-9].py']) is True
+        assert _matches_pattern('testX.py', ['test[0-9].py']) is False
+        
+        # Multiple wildcards
+        assert _matches_pattern('test_utils.py', ['test_*.py']) is True
+        assert _matches_pattern('my_test.py', ['*_test.py']) is True
 
 
 class TestGetLanguage:
@@ -280,6 +311,39 @@ class TestScanFiles:
         """Test scanning empty directory."""
         files = scan_files(tmp_path, include_patterns=['*.py'])
         assert len(files) == 0
+    
+    def test_path_based_patterns(self, tmp_path):
+        """Test glob patterns that include directory paths."""
+        # Create directory structure
+        (tmp_path / 'root.py').touch()
+        
+        tests_dir = tmp_path / 'tests'
+        tests_dir.mkdir()
+        (tests_dir / 'test_main.py').touch()
+        (tests_dir / 'helper.py').touch()
+        
+        src_dir = tmp_path / 'src'
+        src_dir.mkdir()
+        (src_dir / 'main.py').touch()
+        (src_dir / 'utils.py').touch()
+        
+        # Test pattern matching specific directory
+        files = scan_files(tmp_path, include_patterns=['tests/*.py'])
+        assert len(files) == 2
+        assert all('tests' in str(f) for f in files)
+        
+        # Test pattern matching just filename in any location
+        files = scan_files(tmp_path, include_patterns=['*main.py'])
+        assert len(files) == 2  # test_main.py and main.py
+        
+        # Test excluding specific directory files
+        files = scan_files(
+            tmp_path,
+            include_patterns=['*.py'],
+            exclude_patterns=['tests/*']
+        )
+        assert len(files) == 3  # root.py, src/main.py, src/utils.py
+        assert not any('tests' in str(f) for f in files)
 
 
 class TestGenerateFileSummaries:
