@@ -111,10 +111,13 @@ The tool generates the following outputs in the specified directory:
 
 ```
 repo-analysis-output/
-├── SUMMARY.md              # Overview linking to all reports
-├── tree.txt               # Directory tree structure
-├── file-summaries/        # Per-file analysis (TODO)
-└── dependencies.json      # Dependency information (TODO)
+├── SUMMARY.md              # Top-level overview with links and stats
+├── tree.md                 # Human-readable directory tree
+├── tree.json               # Machine-readable directory structure
+├── file-summaries.md       # Per-file heuristic summaries (human-readable)
+├── file-summaries.json     # Per-file summaries (machine-readable)
+├── dependencies.md         # Human-readable dependency graph report
+└── dependencies.json       # Machine-readable dependency graph
 ```
 
 ## Development Status
@@ -124,10 +127,10 @@ Current implementation includes:
 - ✅ Configuration loading and merging
 - ✅ Output directory management with path validation
 - ✅ Dry-run mode
-- ✅ Summary template generation
-- 🚧 Tree generator (interface defined, implementation pending)
-- 🚧 File summary generator (interface defined, implementation pending)
-- 🚧 Dependency scanner (interface defined, implementation pending)
+- ✅ Summary document generation
+- ✅ Tree generator (Markdown + JSON)
+- ✅ File summary generator (Markdown + JSON, heuristic/path-based)
+- ✅ Dependency scanner (Markdown + JSON, Python + JS/TS imports)
 
 ## Error Handling
 
