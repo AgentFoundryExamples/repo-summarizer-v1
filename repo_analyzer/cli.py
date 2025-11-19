@@ -56,8 +56,10 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         Configuration dictionary
     
     Raises:
-        ConfigurationError: If config file is invalid
+        ConfigurationError: If config file is invalid or user-specified file not found
     """
+    user_specified = config_path is not None
+    
     if config_path is None:
         # Default config should be at repository root
         repo_root = get_repository_root()
@@ -67,8 +69,12 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
             # Not in a git repository, use cwd
             config_path = DEFAULT_CONFIG_FILE
     
-    # If config file doesn't exist, return empty config
+    # Check if config file exists
     if not os.path.exists(config_path):
+        # If user explicitly specified a config file that doesn't exist, that's an error
+        if user_specified:
+            raise ConfigurationError(f"Configuration file not found: {config_path}")
+        # If default config doesn't exist, that's okay - return empty config
         return {}
     
     try:
