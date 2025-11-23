@@ -796,13 +796,16 @@ def generate_file_summaries(
                     markdown_lines.append(f"**Declarations:** {metrics['declaration_count']}  ")
             
             # Add structure information if present
-            if 'structure' in entry and entry['structure'].get('declarations'):
-                markdown_lines.append(f"**Top-level declarations:**")
-                for decl in entry['structure']['declarations'][:10]:  # Limit to 10
-                    markdown_lines.append(f"  - {decl}")
-                if len(entry['structure']['declarations']) > 10:
-                    markdown_lines.append(f"  - ... and {len(entry['structure']['declarations']) - 10} more")
+            if 'structure' in entry:
+                # Show declarations if present
+                if entry['structure'].get('declarations'):
+                    markdown_lines.append(f"**Top-level declarations:**")
+                    for decl in entry['structure']['declarations'][:10]:  # Limit to 10
+                        markdown_lines.append(f"  - {decl}")
+                    if len(entry['structure']['declarations']) > 10:
+                        markdown_lines.append(f"  - ... and {len(entry['structure']['declarations']) - 10} more")
                 
+                # Always show warning if present, even without declarations
                 if 'warning' in entry['structure']:
                     markdown_lines.append(f"**Warning:** {entry['structure']['warning']}  ")
             
