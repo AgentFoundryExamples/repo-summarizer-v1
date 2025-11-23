@@ -71,6 +71,9 @@ LANGUAGE_MAP = {
     '.conf': 'Config',
 }
 
+# Compiled regex patterns for performance
+_TODO_PATTERN = re.compile(r'\b(TODO|FIXME)\b', re.IGNORECASE)
+
 
 class FileSummaryError(Exception):
     """Raised when file summary generation fails."""
@@ -112,9 +115,8 @@ def _count_todos(content: str) -> int:
     Returns:
         Number of TODO/FIXME comments
     """
-    # Case-insensitive search for TODO and FIXME
-    pattern = re.compile(r'\b(TODO|FIXME)\b', re.IGNORECASE)
-    return len(pattern.findall(content))
+    # Use pre-compiled pattern for performance
+    return len(_TODO_PATTERN.findall(content))
 
 
 def _parse_python_declarations(content: str) -> Tuple[List[str], Optional[str]]:
@@ -185,7 +187,11 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
     
     # Find export lists - build set of existing names for efficient lookup
     # Extract just the name part from exports (skip "export default" pattern)
-    existing_names = {e.split()[1] for e in exports if len(e.split()) > 1 and e.split()[1] != 'default'}
+    existing_names = set()
+    for e in exports:
+        parts = e.split()
+        if len(parts) > 1 and parts[1] != 'default':
+            existing_names.add(parts[1])
     if has_default:
         existing_names.add('default')
     
