@@ -1178,7 +1178,13 @@ async def async_func():
         """Test JS/TS default export parsing."""
         from repo_analyzer.file_summary import _parse_js_ts_exports
         
+        # Named default identifier export
         content = "export default MyComponent;"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default MyComponent" in exports
+        
+        # Anonymous default export
+        content = "export default {};"
         exports, warning = _parse_js_ts_exports(content)
         assert "export default" in exports
     
@@ -1284,6 +1290,43 @@ export default 42
         assert "export default" not in exports
         assert len(exports) == 2
     
+    def test_parse_js_default_identifier_exports(self):
+        """Test parsing default exports of identifiers (e.g., export default MyComponent;)."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        # Simple identifier export
+        content = "export default MyComponent;"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default MyComponent" in exports
+        assert len(exports) == 1
+        
+        # With other exports
+        content = """
+export const API_URL = "https://api.com";
+export default config;
+"""
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export API_URL" in exports
+        assert "export default config" in exports
+        assert len(exports) == 2
+        
+        # Anonymous defaults should still work
+        content = "export default {};"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default" in exports
+        assert len(exports) == 1
+        
+        # Mixed with named exports
+        content = """
+const Component = () => {};
+export default Component;
+export const helper = () => {};
+"""
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default Component" in exports
+        assert "export helper" in exports
+        assert len(exports) == 2
+    
     def test_structured_summary_with_python_code(self, tmp_path):
         """Test structured summary with actual Python code."""
         from repo_analyzer.file_summary import _create_structured_summary
@@ -1355,7 +1398,8 @@ export default MyComponent;
         declarations = summary['structure']['declarations']
         assert "export myFunc" in declarations
         assert "export MyClass" in declarations
-        assert "export default" in declarations
+        # Now correctly captures the identifier name
+        assert "export default MyComponent" in declarations
         
         # Check metrics
         assert 'metrics' in summary

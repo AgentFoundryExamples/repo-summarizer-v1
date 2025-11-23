@@ -169,6 +169,12 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
         re.MULTILINE
     )
     
+    # Pattern for: export default Identifier; (e.g., export default MyComponent;)
+    default_identifier_pattern = re.compile(
+        r'export\s+default\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*;',
+        re.MULTILINE
+    )
+    
     # Pattern for: export function name() or export const name = or export class Name
     # Also handles TypeScript: export interface Name, export type Name
     export_pattern = re.compile(
@@ -186,6 +192,13 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
     for match in default_named_pattern.finditer(content):
         name = match.group(1)
         exports.append(f"export default {name}")
+    
+    # Find default identifier exports (e.g., export default MyComponent;)
+    for match in default_identifier_pattern.finditer(content):
+        name = match.group(1)
+        # Only add if we haven't already captured this as a named function/class default
+        if f"export default {name}" not in exports:
+            exports.append(f"export default {name}")
     
     # Find named exports (including TypeScript interface/type)
     for match in export_pattern.finditer(content):
