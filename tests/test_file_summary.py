@@ -1387,5 +1387,55 @@ export default MyComponent;
         assert summary['language'] == 'Unknown'
         assert 'role_justification' in summary
         assert summary['role_justification']  # Should explain it's default classification
+    
+    def test_large_file_preserves_loc_todo_metrics(self, tmp_path):
+        """Test that large files still provide LOC and TODO metrics at standard level."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'large.py'
+        # Create a large file with TODOs
+        large_content = "# TODO: optimize\n" * 50000  # Much larger than 1KB
+        file_path.write_text(large_content)
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='standard', include_legacy=True, max_file_size_kb=1
+        )
+        
+        # Should have metrics with LOC and TODO even though file is large
+        assert 'metrics' in summary
+        assert 'size_bytes' in summary['metrics']
+        assert 'loc' in summary['metrics']
+        assert 'todo_count' in summary['metrics']
+        assert summary['metrics']['todo_count'] == 50000
+        # LOC should be 0 because all lines are comments
+        assert summary['metrics']['loc'] == 0
+    
+    def test_js_export_aliases_recorded_correctly(self, tmp_path):
+        """Test that JS/TS export aliases use the exported name, not source name."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        # Test "export { foo as bar }"
+        content = "export { original as renamed }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export renamed" in exports
+        assert "export original" not in exports
+        
+        # Test multiple aliases
+        content = "export { foo as bar, baz as qux }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export bar" in exports
+        assert "export qux" in exports
+        assert "export foo" not in exports
+        assert "export baz" not in exports
+        
+        # Test mixed - some with aliases, some without
+        content = "export { foo, bar as baz }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export foo" in exports
+        assert "export baz" in exports
+        assert "export bar" not in exports
 
 

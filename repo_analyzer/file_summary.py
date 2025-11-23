@@ -202,10 +202,15 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
             stripped = item.strip()
             if not stripped:
                 continue
-            # Handle "name as alias" exports - take first part
+            # Handle "name as alias" exports - use the alias (what's exported)
             parts = stripped.split()
             if parts:
-                name = parts[0]
+                # If "as" is present, take the name after it (the alias)
+                if len(parts) >= 3 and parts[1].lower() == 'as':
+                    name = parts[2]
+                else:
+                    # No alias, use the original name
+                    name = parts[0]
                 # Ensure name is valid identifier and not already exported
                 if name and name not in existing_names:
                     exports.append(f"export {name}")
@@ -543,9 +548,17 @@ def _create_structured_summary(
         file_size = file_path.stat().st_size
         file_size_kb = file_size / 1024
         
-        # Skip expensive parsing for large files
+        # Skip expensive parsing for large files, but still read for basic metrics
         if file_size_kb > max_file_size_kb:
             file_too_large = True
+            # For large files, still read content for LOC/TODO if at standard/detailed level
+            # but skip declaration parsing
+            if detail_level in ["standard", "detailed"]:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                except (OSError, IOError) as e:
+                    parse_error = f"Failed to read file: {str(e)}"
         else:
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
