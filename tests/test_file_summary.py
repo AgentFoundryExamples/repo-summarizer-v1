@@ -776,6 +776,8 @@ class TestStructuredSummarySchema:
         assert summary['language'] == 'Python'
         assert 'role' in summary
         assert summary['role'] == 'entry-point'
+        assert 'role_justification' in summary
+        assert summary['role_justification']  # Should not be empty
         
         # Legacy compatibility fields
         assert 'summary' in summary
@@ -785,6 +787,8 @@ class TestStructuredSummarySchema:
         # Standard detail level includes metrics
         assert 'metrics' in summary
         assert 'size_bytes' in summary['metrics']
+        assert 'loc' in summary['metrics']
+        assert 'todo_count' in summary['metrics']
     
     def test_role_detection(self, tmp_path):
         """Test file role detection."""
@@ -818,8 +822,9 @@ class TestStructuredSummarySchema:
         for filename, expected_role in test_cases:
             file_path = source / filename
             file_path.touch()
-            role = _detect_file_role(file_path, source)
+            role, justification = _detect_file_role(file_path, source)
             assert role == expected_role, f"Expected {expected_role} for {filename}, got {role}"
+            assert justification, f"Expected justification for {filename}, got empty string"
     
     def test_detail_level_minimal(self, tmp_path):
         """Test minimal detail level."""
@@ -987,7 +992,7 @@ class TestStructuredSummarySchema:
         keys = list(first_file.keys())
         
         # Expected order
-        expected_order = ['schema_version', 'path', 'language', 'role', 'summary', 'summary_text', 'metrics']
+        expected_order = ['schema_version', 'path', 'language', 'role', 'role_justification', 'summary', 'summary_text', 'metrics']
         assert keys == expected_order
     
     def test_backward_compatibility_with_old_parsers(self, tmp_path):
@@ -1054,4 +1059,333 @@ class TestStructuredSummarySchema:
         # Should include size from metrics
         assert '**Size:**' in content
         assert 'KB' in content
+
+
+class TestParsingFunctionality:
+    """Tests for new parsing functionality (AST, LOC, TODO, etc.)."""
+    
+    def test_count_lines_of_code(self):
+        """Test LOC counting."""
+        from repo_analyzer.file_summary import _count_lines_of_code
+        
+        # Simple case
+        content = "line1\nline2\nline3"
+        assert _count_lines_of_code(content) == 3
+        
+        # With empty lines
+        content = "line1\n\nline2\n\n\nline3"
+        assert _count_lines_of_code(content) == 3
+        
+        # With comments
+        content = "line1\n# comment\nline2\n// comment\nline3"
+        assert _count_lines_of_code(content) == 3
+        
+        # Empty content
+        assert _count_lines_of_code("") == 0
+    
+    def test_count_todos(self):
+        """Test TODO/FIXME counting."""
+        from repo_analyzer.file_summary import _count_todos
+        
+        # No TODOs
+        assert _count_todos("just some code") == 0
+        
+        # Single TODO
+        assert _count_todos("# TODO: fix this") == 1
+        
+        # Multiple TODOs and FIXMEs
+        content = "# TODO: do this\n# FIXME: fix that\n# Another TODO"
+        assert _count_todos(content) == 3
+        
+        # Case insensitive
+        assert _count_todos("# todo: lowercase") == 1
+        assert _count_todos("# fixme: lowercase") == 1
+        
+        # In different comment styles
+        content = "// TODO: js style\n/* FIXME: block comment */\n# TODO: python"
+        assert _count_todos(content) == 3
+    
+    def test_parse_python_declarations_valid(self):
+        """Test Python AST parsing with valid code."""
+        from repo_analyzer.file_summary import _parse_python_declarations
+        
+        # Simple function
+        content = "def hello():\n    pass"
+        declarations, error = _parse_python_declarations(content)
+        assert error is None
+        assert "function hello" in declarations
+        
+        # Class
+        content = "class MyClass:\n    pass"
+        declarations, error = _parse_python_declarations(content)
+        assert error is None
+        assert "class MyClass" in declarations
+        
+        # Multiple declarations
+        content = """
+def func1():
+    pass
+
+class Class1:
+    pass
+
+async def async_func():
+    pass
+"""
+        declarations, error = _parse_python_declarations(content)
+        assert error is None
+        assert len(declarations) == 3
+        assert "function func1" in declarations
+        assert "class Class1" in declarations
+        assert "async function async_func" in declarations
+    
+    def test_parse_python_declarations_syntax_error(self):
+        """Test Python AST parsing with syntax errors."""
+        from repo_analyzer.file_summary import _parse_python_declarations
+        
+        # Invalid syntax
+        content = "def broken("
+        declarations, error = _parse_python_declarations(content)
+        assert error is not None
+        assert "Syntax error" in error or "Parse error" in error
+        assert len(declarations) == 0
+    
+    def test_parse_js_ts_exports_functions(self):
+        """Test JS/TS export parsing for functions."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        # Named function export
+        content = "export function myFunc() { }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export myFunc" in exports
+        
+        # Const export
+        content = "export const myConst = 42;"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export myConst" in exports
+        
+        # Class export
+        content = "export class MyClass { }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export MyClass" in exports
+        
+        # Async function
+        content = "export async function asyncFunc() { }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export asyncFunc" in exports
+    
+    def test_parse_js_ts_exports_default(self):
+        """Test JS/TS default export parsing."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        content = "export default MyComponent;"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default" in exports
+    
+    def test_parse_js_ts_exports_list(self):
+        """Test JS/TS export list parsing."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        content = "export { foo, bar, baz };"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export foo" in exports
+        assert "export bar" in exports
+        assert "export baz" in exports
+    
+    def test_parse_js_ts_exports_no_exports(self):
+        """Test JS/TS parsing with no exports."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        content = "function notExported() { }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert len(exports) == 0
+        assert warning is None
+    
+    def test_structured_summary_with_python_code(self, tmp_path):
+        """Test structured summary with actual Python code."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'module.py'
+        file_path.write_text("""
+def function1():
+    pass
+
+class MyClass:
+    pass
+
+# TODO: implement this
+def function2():
+    pass
+""")
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True
+        )
+        
+        # Check structure
+        assert 'structure' in summary
+        assert 'declarations' in summary['structure']
+        declarations = summary['structure']['declarations']
+        assert len(declarations) == 3
+        assert "function function1" in declarations
+        assert "class MyClass" in declarations
+        assert "function function2" in declarations
+        
+        # Check metrics
+        assert 'metrics' in summary
+        assert 'loc' in summary['metrics']
+        assert summary['metrics']['loc'] > 0
+        assert 'todo_count' in summary['metrics']
+        assert summary['metrics']['todo_count'] == 1
+        assert 'declaration_count' in summary['metrics']
+        assert summary['metrics']['declaration_count'] == 3
+    
+    def test_structured_summary_with_js_code(self, tmp_path):
+        """Test structured summary with actual JavaScript code."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'module.js'
+        file_path.write_text("""
+export function myFunc() {
+    // TODO: add validation
+}
+
+export class MyClass {
+}
+
+export default MyComponent;
+""")
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True
+        )
+        
+        # Check structure
+        assert 'structure' in summary
+        assert 'declarations' in summary['structure']
+        declarations = summary['structure']['declarations']
+        assert "export myFunc" in declarations
+        assert "export MyClass" in declarations
+        assert "export default" in declarations
+        
+        # Check metrics
+        assert 'metrics' in summary
+        assert 'todo_count' in summary['metrics']
+        assert summary['metrics']['todo_count'] == 1
+    
+    def test_structured_summary_with_syntax_error(self, tmp_path):
+        """Test structured summary with invalid Python syntax."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'broken.py'
+        file_path.write_text("def broken(")
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True
+        )
+        
+        # Should have structure field with warning
+        assert 'structure' in summary
+        assert 'warning' in summary['structure']
+        assert 'declarations' in summary['structure']
+        assert len(summary['structure']['declarations']) == 0
+    
+    def test_structured_summary_large_file_skips_parsing(self, tmp_path):
+        """Test that large files skip expensive parsing."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'large.py'
+        # Create a large file
+        large_content = "# Large file\n" * 100000  # Much larger than 1KB
+        file_path.write_text(large_content)
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True, max_file_size_kb=1
+        )
+        
+        # Should have structure field with warning about size
+        assert 'structure' in summary
+        assert 'warning' in summary['structure']
+        assert 'exceeds' in summary['structure']['warning']
+        assert len(summary['structure']['declarations']) == 0
+    
+    def test_structured_summary_unknown_language(self, tmp_path):
+        """Test structured summary with unsupported language."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'file.xyz'
+        file_path.write_text("some content")
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True
+        )
+        
+        # Should have structure field with warning about no parser
+        assert 'structure' in summary
+        if 'warning' in summary['structure']:
+            assert 'No parser available' in summary['structure']['warning']
+    
+    def test_role_justification_in_output(self, tmp_path):
+        """Test that role justification appears in output."""
+        from repo_analyzer.file_summary import generate_file_summaries
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        (source / 'test_file.py').write_text("# test")
+        
+        output = tmp_path / 'output'
+        output.mkdir()
+        
+        generate_file_summaries(
+            source,
+            output,
+            include_patterns=['*.py'],
+            detail_level='standard'
+        )
+        
+        # Check JSON output
+        json_file = output / 'file-summaries.json'
+        data = json.loads(json_file.read_text())
+        assert 'role_justification' in data['files'][0]
+        assert data['files'][0]['role_justification']
+        
+        # Check Markdown output
+        md_file = output / 'file-summaries.md'
+        content = md_file.read_text()
+        assert '**Role Justification:**' in content
+    
+    def test_file_without_extension(self, tmp_path):
+        """Test handling of files without extensions."""
+        from repo_analyzer.file_summary import _create_structured_summary
+        
+        source = tmp_path / 'source'
+        source.mkdir()
+        
+        file_path = source / 'Makefile'
+        file_path.write_text("all:\n\techo hello")
+        
+        summary = _create_structured_summary(
+            file_path, source, detail_level='detailed', include_legacy=True
+        )
+        
+        # Should still work, just with Unknown language
+        assert summary['language'] == 'Unknown'
+        assert 'role_justification' in summary
+        assert summary['role_justification']  # Should explain it's default classification
+
 

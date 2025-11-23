@@ -10,10 +10,13 @@ Schema Version: 2.0
 - Version 2.0: Structured summaries with role, metrics, structure, and dependencies
 """
 
+import ast
 import json
 import os
+import re
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Literal
+from typing import Dict, List, Any, Optional, Set, Literal, Tuple
+import warnings
 
 # Schema version for structured summaries
 SCHEMA_VERSION = "2.0"
@@ -75,6 +78,123 @@ class FileSummaryError(Exception):
     pass
 
 
+def _count_lines_of_code(content: str) -> int:
+    """
+    Count non-empty, non-comment lines of code.
+    
+    Args:
+        content: File content as string
+    
+    Returns:
+        Number of lines of code
+    """
+    lines = content.split('\n')
+    loc = 0
+    for line in lines:
+        stripped = line.strip()
+        # Skip empty lines and pure comment lines (basic heuristic)
+        if stripped and not stripped.startswith('#') and not stripped.startswith('//'):
+            loc += 1
+    return loc
+
+
+def _count_todos(content: str) -> int:
+    """
+    Count TODO and FIXME comments in file content.
+    
+    Args:
+        content: File content as string
+    
+    Returns:
+        Number of TODO/FIXME comments
+    """
+    # Case-insensitive search for TODO and FIXME
+    pattern = re.compile(r'\b(TODO|FIXME)\b', re.IGNORECASE)
+    return len(pattern.findall(content))
+
+
+def _parse_python_declarations(content: str) -> Tuple[List[str], Optional[str]]:
+    """
+    Parse Python file to extract top-level function and class declarations.
+    
+    Uses Python's ast module for safe static analysis without code execution.
+    
+    Args:
+        content: Python source code as string
+    
+    Returns:
+        Tuple of (list of declaration names, error message if parsing failed)
+    """
+    declarations = []
+    try:
+        tree = ast.parse(content)
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef):
+                declarations.append(f"function {node.name}")
+            elif isinstance(node, ast.AsyncFunctionDef):
+                declarations.append(f"async function {node.name}")
+            elif isinstance(node, ast.ClassDef):
+                declarations.append(f"class {node.name}")
+        return declarations, None
+    except SyntaxError as e:
+        return [], f"Syntax error at line {e.lineno}: {e.msg}"
+    except Exception as e:
+        return [], f"Parse error: {str(e)}"
+
+
+def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
+    """
+    Parse JavaScript/TypeScript file to extract exported symbols.
+    
+    Uses deterministic regex patterns as a lightweight alternative to full parsing.
+    This is a best-effort approach that may miss complex export patterns.
+    
+    Args:
+        content: JavaScript/TypeScript source code as string
+    
+    Returns:
+        Tuple of (list of export declarations, warning message if any)
+    """
+    exports = []
+    warnings_list = []
+    
+    # Pattern for: export function name() or export const name = or export class Name
+    export_pattern = re.compile(
+        r'export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for: export default
+    default_export_pattern = re.compile(r'export\s+default\s+', re.MULTILINE)
+    
+    # Pattern for: export { a, b, c }
+    export_list_pattern = re.compile(r'export\s+\{([^}]+)\}', re.MULTILINE)
+    
+    # Find named exports
+    for match in export_pattern.finditer(content):
+        name = match.group(1)
+        exports.append(f"export {name}")
+    
+    # Find default export
+    if default_export_pattern.search(content):
+        exports.append("export default")
+    
+    # Find export lists
+    for match in export_list_pattern.finditer(content):
+        export_list = match.group(1)
+        # Split by comma and clean up
+        items = [item.strip().split()[0] for item in export_list.split(',')]
+        for item in items:
+            if item and item not in [e.split()[-1] for e in exports]:
+                exports.append(f"export {item}")
+    
+    warning = None
+    if not exports and ('export' in content or 'module.exports' in content):
+        warning = "File contains exports but pattern matching may have missed some"
+    
+    return exports, warning
+
+
 def _matches_pattern(path: str, patterns: List[str]) -> bool:
     """
     Check if a path matches any of the given glob patterns.
@@ -120,7 +240,7 @@ def _get_language(file_path: Path) -> str:
     return LANGUAGE_MAP.get(extension, 'Unknown')
 
 
-def _detect_file_role(file_path: Path, root_path: Path) -> str:
+def _detect_file_role(file_path: Path, root_path: Path) -> Tuple[str, str]:
     """
     Detect the role/purpose of a file based on its name and path.
     
@@ -129,7 +249,7 @@ def _detect_file_role(file_path: Path, root_path: Path) -> str:
         root_path: Root path of the repository
     
     Returns:
-        Role string (e.g., "entry-point", "test", "configuration", "utility", "model")
+        Tuple of (role string, justification string)
     """
     name = file_path.stem
     name_lower = name.lower()
@@ -143,90 +263,100 @@ def _detect_file_role(file_path: Path, root_path: Path) -> str:
         path_parts = []
     
     # Test files
-    if name_lower.startswith('test_') or name_lower.endswith('_test'):
-        return "test"
+    if name_lower.startswith('test_'):
+        return "test", f"filename starts with 'test_'"
+    if name_lower.endswith('_test'):
+        return "test", f"filename ends with '_test'"
     # Only match "test" as exact name, not as prefix to avoid false positives like "testament.py"
     if name_lower == 'test':
-        return "test"
+        return "test", f"filename is 'test'"
     if path_parts and path_parts[0].lower() in ['tests', 'test']:
-        return "test"
+        return "test", f"located in '{path_parts[0]}' directory"
     
     # Entry point files
     if name_lower in ['main', 'index', 'app', '__main__']:
-        return "entry-point"
+        return "entry-point", f"common entry point name '{name_lower}'"
     
     # Configuration files
     if name_lower in ['config', 'configuration', 'settings']:
-        return "configuration"
+        return "configuration", f"configuration file name '{name_lower}'"
+    if extension in ['.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf']:
+        return "configuration", f"configuration file extension '{extension}'"
+    
+    # CLI files
+    if name_lower in ['cli', 'command', 'commands']:
+        return "cli", f"CLI-related name '{name_lower}'"
+    
+    # Utility files
+    if name_lower in ['utils', 'util', 'utilities', 'helpers', 'helper']:
+        return "utility", f"utility/helper name '{name_lower}'"
+    
+    # Model/schema files
+    if name_lower in ['model', 'models', 'schema', 'schemas']:
+        return "model", f"model/schema name '{name_lower}'"
+    
+    # Controller/handler files
+    if name_lower in ['controller', 'controllers', 'handler', 'handlers']:
+        return "controller", f"controller/handler name '{name_lower}'"
+    
+    # View/template files
+    if name_lower in ['view', 'views', 'template', 'templates']:
+        return "view", f"view/template name '{name_lower}'"
+    
+    # Service layer files
+    if name_lower in ['service', 'services']:
+        return "service", f"service layer name '{name_lower}'"
+    
+    # Data access layer
+    if name_lower in ['repository', 'repositories', 'dao']:
+        return "data-access", f"data access name '{name_lower}'"
+    
+    # API files
+    if 'api' in name_lower:
+        return "api", f"filename contains 'api'"
+    
+    # Database files
+    if 'db' in name_lower or 'database' in name_lower:
+        return "database", f"filename contains database-related term"
+    
+    # Router files
+    if 'router' in name_lower or 'routes' in name_lower:
+        return "router", f"filename contains routing term"
+    
+    # Middleware files
+    if 'middleware' in name_lower:
+        return "middleware", f"filename contains 'middleware'"
+    
+    # Component files (for JS/TS frameworks)
+    if extension in ['.jsx', '.tsx', '.vue']:
+        return "component", f"component file extension '{extension}'"
+    if 'component' in name_lower:
+        return "component", f"filename contains 'component'"
+    
+    # Module initialization
+    if name_lower in ['__init__', 'mod']:
+        return "module-init", f"module initialization file '{name_lower}'"
+    
+    # Documentation
+    if extension in ['.md', '.rst']:
+        return "documentation", f"documentation file extension '{extension}'"
+    if path_parts and path_parts[0].lower() in ['docs', 'documentation']:
+        return "documentation", f"located in '{path_parts[0]}' directory"
+    
+    # Scripts
+    if path_parts and path_parts[0].lower() in ['scripts', 'bin']:
+        return "script", f"located in '{path_parts[0]}' directory"
+    
+    # Examples
+    if path_parts and path_parts[0].lower() in ['examples', 'demos', 'samples']:
+        return "example", f"located in '{path_parts[0]}' directory"
+    
+    # Default to "implementation"
+    return "implementation", "general implementation file (default classification)"
     if extension in ['.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf']:
         return "configuration"
     
     # CLI files
-    if name_lower in ['cli', 'command', 'commands']:
-        return "cli"
-    
-    # Utility files
-    if name_lower in ['utils', 'util', 'utilities', 'helpers', 'helper']:
-        return "utility"
-    
-    # Model/schema files
-    if name_lower in ['model', 'models', 'schema', 'schemas']:
-        return "model"
-    
-    # Controller/handler files
-    if name_lower in ['controller', 'controllers', 'handler', 'handlers']:
-        return "controller"
-    
-    # View/template files
-    if name_lower in ['view', 'views', 'template', 'templates']:
-        return "view"
-    
-    # Service layer files
-    if name_lower in ['service', 'services']:
-        return "service"
-    
-    # Data access layer
-    if name_lower in ['repository', 'repositories', 'dao']:
-        return "data-access"
-    
-    # API files
-    if 'api' in name_lower:
-        return "api"
-    
-    # Database files
-    if 'db' in name_lower or 'database' in name_lower:
-        return "database"
-    
-    # Router files
-    if 'router' in name_lower or 'routes' in name_lower:
-        return "router"
-    
-    # Middleware files
-    if 'middleware' in name_lower:
-        return "middleware"
-    
-    # Component files (for JS/TS frameworks)
-    if extension in ['.jsx', '.tsx', '.vue'] or 'component' in name_lower:
-        return "component"
-    
-    # Module initialization
-    if name_lower in ['__init__', 'mod']:
-        return "module-init"
-    
-    # Documentation
-    if extension in ['.md', '.rst'] or (path_parts and path_parts[0].lower() in ['docs', 'documentation']):
-        return "documentation"
-    
-    # Scripts
-    if path_parts and path_parts[0].lower() in ['scripts', 'bin']:
-        return "script"
-    
-    # Examples
-    if path_parts and path_parts[0].lower() in ['examples', 'demos', 'samples']:
-        return "example"
-    
-    # Default to "implementation"
-    return "implementation"
 
 
 def _generate_heuristic_summary(file_path: Path, root_path: Path) -> str:
@@ -352,7 +482,8 @@ def _create_structured_summary(
     file_path: Path,
     root_path: Path,
     detail_level: DetailLevel = "standard",
-    include_legacy: bool = True
+    include_legacy: bool = True,
+    max_file_size_kb: int = 1024
 ) -> Dict[str, Any]:
     """
     Create a structured summary for a file with metadata.
@@ -362,6 +493,7 @@ def _create_structured_summary(
         root_path: Root path of the repository
         detail_level: Level of detail ("minimal", "standard", "detailed")
         include_legacy: Whether to include legacy summary field
+        max_file_size_kb: Maximum file size in KB for expensive parsing (default 1024)
     
     Returns:
         Dictionary with structured summary data
@@ -372,7 +504,7 @@ def _create_structured_summary(
         rel_path = file_path
     
     language = _get_language(file_path)
-    role = _detect_file_role(file_path, root_path)
+    role, role_justification = _detect_file_role(file_path, root_path)
     
     # Build the structured summary with deterministic key ordering
     summary = {
@@ -380,33 +512,89 @@ def _create_structured_summary(
         "path": str(rel_path.as_posix()),
         "language": language,
         "role": role,
+        "role_justification": role_justification,
     }
+    
+    # Read file content for analysis (if needed)
+    content = None
+    file_too_large = False
+    parse_error = None
+    
+    try:
+        file_size = file_path.stat().st_size
+        file_size_kb = file_size / 1024
+        
+        # Skip expensive parsing for large files
+        if file_size_kb > max_file_size_kb:
+            file_too_large = True
+        else:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            except (OSError, IOError) as e:
+                parse_error = f"Failed to read file: {str(e)}"
+    except (OSError, IOError):
+        file_size = 0
     
     # Add legacy summary field for backward compatibility
     if include_legacy:
-        summary["summary"] = _generate_heuristic_summary(file_path, root_path)
+        # Generate enhanced summary that includes structure info when available
+        base_summary = _generate_heuristic_summary(file_path, root_path)
+        
+        # Enhance summary with role information
+        summary_parts = [base_summary]
+        if role != "implementation":
+            summary_parts.append(f"(role: {role})")
+        
+        summary["summary"] = " ".join(summary_parts)
         # Also add as summary_text for additional compatibility
         summary["summary_text"] = summary["summary"]
     
     # Add metrics based on detail level
     if detail_level in ["standard", "detailed"]:
-        try:
-            file_size = file_path.stat().st_size
-            summary["metrics"] = {
-                "size_bytes": file_size,
-            }
-        except (OSError, IOError):
-            summary["metrics"] = {
-                "size_bytes": 0,
-            }
+        metrics = {
+            "size_bytes": file_size,
+        }
+        
+        # Add LOC and TODO counts if we have content
+        if content is not None:
+            metrics["loc"] = _count_lines_of_code(content)
+            metrics["todo_count"] = _count_todos(content)
+        
+        summary["metrics"] = metrics
     
     # Add structure field for detailed level
     if detail_level == "detailed":
-        # For now, structure is placeholder - could be extended to detect
-        # top-level declarations (functions, classes, exports) via static analysis
+        declarations = []
+        structure_warning = None
+        
+        if file_too_large:
+            structure_warning = f"File exceeds {max_file_size_kb}KB limit, skipping expensive parsing"
+        elif parse_error:
+            structure_warning = parse_error
+        elif content is not None:
+            # Parse declarations based on language
+            if language == "Python":
+                declarations, error = _parse_python_declarations(content)
+                if error:
+                    structure_warning = error
+            elif language in ["JavaScript", "TypeScript"]:
+                declarations, warning = _parse_js_ts_exports(content)
+                if warning:
+                    structure_warning = warning
+            else:
+                structure_warning = f"No parser available for {language}"
+        
         summary["structure"] = {
-            "declarations": [],  # Empty for heuristic-only implementation
+            "declarations": declarations,
         }
+        
+        if structure_warning:
+            summary["structure"]["warning"] = structure_warning
+        
+        # Add declaration count to metrics if available
+        if declarations and "metrics" in summary:
+            summary["metrics"]["declaration_count"] = len(declarations)
     
     # Add dependencies field for detailed level
     if detail_level == "detailed":
@@ -514,7 +702,8 @@ def generate_file_summaries(
     exclude_dirs: Optional[Set[str]] = None,
     dry_run: bool = False,
     detail_level: DetailLevel = "standard",
-    include_legacy_summary: bool = True
+    include_legacy_summary: bool = True,
+    max_file_size_kb: int = 1024
 ) -> None:
     """
     Generate file summaries in Markdown and JSON formats.
@@ -528,6 +717,7 @@ def generate_file_summaries(
         dry_run: If True, only log intent without writing files
         detail_level: Level of detail ("minimal", "standard", "detailed")
         include_legacy_summary: Whether to include legacy summary field for backward compatibility
+        max_file_size_kb: Maximum file size in KB for expensive parsing (default 1024)
     
     Raises:
         FileSummaryError: If file summary generation fails
@@ -550,7 +740,8 @@ def generate_file_summaries(
                 file_path,
                 root_path,
                 detail_level=detail_level,
-                include_legacy=include_legacy_summary
+                include_legacy=include_legacy_summary,
+                max_file_size_kb=max_file_size_kb
             )
             summaries.append(structured_summary)
         
@@ -564,6 +755,7 @@ def generate_file_summaries(
             markdown_lines.append(f"## {entry['path']}")
             markdown_lines.append(f"**Language:** {entry['language']}  ")
             markdown_lines.append(f"**Role:** {entry['role']}  ")
+            markdown_lines.append(f"**Role Justification:** {entry['role_justification']}  ")
             
             # Include legacy summary if present
             if 'summary' in entry:
@@ -574,6 +766,26 @@ def generate_file_summaries(
                 metrics = entry['metrics']
                 size_kb = metrics['size_bytes'] / 1024
                 markdown_lines.append(f"**Size:** {size_kb:.2f} KB  ")
+                
+                if 'loc' in metrics:
+                    markdown_lines.append(f"**LOC:** {metrics['loc']}  ")
+                
+                if 'todo_count' in metrics:
+                    markdown_lines.append(f"**TODOs/FIXMEs:** {metrics['todo_count']}  ")
+                
+                if 'declaration_count' in metrics:
+                    markdown_lines.append(f"**Declarations:** {metrics['declaration_count']}  ")
+            
+            # Add structure information if present
+            if 'structure' in entry and entry['structure'].get('declarations'):
+                markdown_lines.append(f"**Top-level declarations:**")
+                for decl in entry['structure']['declarations'][:10]:  # Limit to 10
+                    markdown_lines.append(f"  - {decl}")
+                if len(entry['structure']['declarations']) > 10:
+                    markdown_lines.append(f"  - ... and {len(entry['structure']['declarations']) - 10} more")
+                
+                if 'warning' in entry['structure']:
+                    markdown_lines.append(f"**Warning:** {entry['structure']['warning']}  ")
             
             markdown_lines.append("")  # Empty line between entries
         
