@@ -163,26 +163,39 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
     """
     exports = []
     
-    # Pattern for: export function name() or export const name = or export class Name
-    export_pattern = re.compile(
-        r'export\s+(?:async\s+)?(?:function|const|let|var|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)',
+    # Pattern for: export default function/class Name
+    default_named_pattern = re.compile(
+        r'export\s+default\s+(?:async\s+)?(?:function|class)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)',
         re.MULTILINE
     )
     
-    # Pattern for: export default
+    # Pattern for: export function name() or export const name = or export class Name
+    # Also handles TypeScript: export interface Name, export type Name
+    export_pattern = re.compile(
+        r'export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for: export default (without a name)
     default_export_pattern = re.compile(r'export\s+default\s+', re.MULTILINE)
     
     # Pattern for: export { a, b, c }
     export_list_pattern = re.compile(r'export\s+\{([^}]+)\}', re.MULTILINE)
     
-    # Find named exports
+    # Find default exports with names (e.g., export default function Foo)
+    for match in default_named_pattern.finditer(content):
+        name = match.group(1)
+        exports.append(f"export default {name}")
+    
+    # Find named exports (including TypeScript interface/type)
     for match in export_pattern.finditer(content):
         name = match.group(1)
         exports.append(f"export {name}")
     
-    # Find default export
+    # Check for anonymous default export (only if no named default found)
     has_default = default_export_pattern.search(content)
-    if has_default:
+    has_named_default = any('default' in e for e in exports)
+    if has_default and not has_named_default:
         exports.append("export default")
     
     # Find export lists - build set of existing names for efficient lookup
@@ -192,7 +205,9 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
         parts = e.split()
         if len(parts) > 1 and parts[1] != 'default':
             existing_names.add(parts[1])
-    if has_default:
+        elif len(parts) > 2:  # "export default Name"
+            existing_names.add(parts[2])
+    if has_default or has_named_default:
         existing_names.add('default')
     
     for match in export_list_pattern.finditer(content):

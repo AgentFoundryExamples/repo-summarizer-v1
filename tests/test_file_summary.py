@@ -1201,6 +1201,57 @@ async def async_func():
         assert len(exports) == 0
         assert warning is None
     
+    def test_parse_js_ts_default_named_exports(self):
+        """Test JS/TS parsing for default exports with names."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        # Named default function
+        content = "export default function Foo() {}"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default Foo" in exports
+        
+        # Named default class
+        content = "export default class Bar {}"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default Bar" in exports
+        
+        # Named default async function
+        content = "export default async function AsyncFn() {}"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default AsyncFn" in exports
+        
+        # Anonymous default export
+        content = "export default 42"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export default" in exports
+        assert len(exports) == 1
+    
+    def test_parse_typescript_exports(self):
+        """Test parsing TypeScript-specific exports (interface, type)."""
+        from repo_analyzer.file_summary import _parse_js_ts_exports
+        
+        # Interface export
+        content = "export interface User { name: string }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export User" in exports
+        
+        # Type export
+        content = "export type Config = { value: number }"
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export Config" in exports
+        
+        # Multiple TypeScript exports
+        content = """
+export interface IUser {}
+export type UserConfig = {}
+export class UserService {}
+"""
+        exports, warning = _parse_js_ts_exports(content)
+        assert "export IUser" in exports
+        assert "export UserConfig" in exports
+        assert "export UserService" in exports
+        assert len(exports) == 3
+    
     def test_structured_summary_with_python_code(self, tmp_path):
         """Test structured summary with actual Python code."""
         from repo_analyzer.file_summary import _create_structured_summary
