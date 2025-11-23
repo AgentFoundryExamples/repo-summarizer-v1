@@ -81,6 +81,11 @@ def _count_lines_of_code(content: str) -> int:
     """
     Count non-empty, non-comment lines of code.
     
+    This is a basic heuristic that counts lines that are not empty and do not
+    start with common comment markers (# or //). It does not detect block comments
+    (/* */, <!-- -->) or language-specific comment styles. This may slightly
+    overcount LOC in files with extensive block comments.
+    
     Args:
         content: File content as string
     
@@ -177,14 +182,21 @@ def _parse_js_ts_exports(content: str) -> Tuple[List[str], Optional[str]]:
     if default_export_pattern.search(content):
         exports.append("export default")
     
-    # Find export lists
+    # Find export lists - build set of existing names for efficient lookup
+    existing_names = {e.split()[-1] for e in exports}
+    
     for match in export_list_pattern.finditer(content):
         export_list = match.group(1)
         # Split by comma and clean up
-        items = [item.strip().split()[0] for item in export_list.split(',')]
-        for item in items:
-            if item and item not in [e.split()[-1] for e in exports]:
-                exports.append(f"export {item}")
+        for item in export_list.split(','):
+            stripped = item.strip()
+            # Handle "name as alias" exports - take first part
+            parts = stripped.split()
+            if parts:
+                name = parts[0]
+                if name and name not in existing_names:
+                    exports.append(f"export {name}")
+                    existing_names.add(name)
     
     warning = None
     if not exports and ('export' in content or 'module.exports' in content):
