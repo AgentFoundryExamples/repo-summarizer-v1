@@ -465,6 +465,22 @@ class TestGoldenOutputs:
             assert "role" in gen_file
             assert "role_justification" in gen_file
             assert "metrics" in gen_file
+        
+        # Verify language detection and role classification remain consistent
+        golden_files_by_path = {f["path"]: f for f in golden_json["files"]}
+        generated_files_by_path = {f["path"]: f for f in generated_json["files"]}
+        
+        for path in golden_paths:
+            golden_file = golden_files_by_path[path]
+            generated_file = generated_files_by_path[path]
+            
+            # Language detection should be consistent
+            assert golden_file["language"] == generated_file["language"], \
+                f"Language mismatch for {path}: expected {golden_file['language']}, got {generated_file['language']}"
+            
+            # Role classification should be consistent
+            assert golden_file["role"] == generated_file["role"], \
+                f"Role mismatch for {path}: expected {golden_file['role']}, got {generated_file['role']}"
 
 
 class TestCrossFixtureConsistency:
@@ -512,14 +528,23 @@ class TestCrossFixtureConsistency:
             generate_dependency_report(fixture_path, output, include_patterns=["*.*"])
             generate_tree_report(fixture_path, output)
             
-            # Check for error messages (look for actual error markers, not substrings)
+            # Check for actual error/failure patterns (not substrings in normal output)
             captured = capsys.readouterr()
-            error_indicators = ["Error:", "ERROR:", "error:", "Failed", "FAILED"]
-            for indicator in error_indicators:
-                assert indicator not in captured.out, \
-                    f"Errors detected for {fixture_path.name}: {captured.out}"
-                assert indicator not in captured.err, \
-                    f"Errors detected for {fixture_path.name}: {captured.err}"
+            # Look for error patterns at line start or with specific prefixes
+            import re
+            error_patterns = [
+                r'^Error:',
+                r'^ERROR:',
+                r'^\[ERROR\]',
+                r'Failed to',
+                r'FAILED:',
+                r'Traceback \(most recent call last\)',
+            ]
+            for pattern in error_patterns:
+                if re.search(pattern, captured.out, re.MULTILINE):
+                    pytest.fail(f"Error pattern '{pattern}' found in output for {fixture_path.name}: {captured.out}")
+                if re.search(pattern, captured.err, re.MULTILINE):
+                    pytest.fail(f"Error pattern '{pattern}' found in stderr for {fixture_path.name}: {captured.err}")
 
 
 class TestLanguageSpecificBehavior:
@@ -588,13 +613,23 @@ class TestLanguageSpecificBehavior:
         json_file = output / "dependencies.json"
         data = json.loads(json_file.read_text())
         
-        # Find index.html node
-        index_html = next((n for n in data["nodes"] if "index.html" in n["path"]), None)
+        # Find index.html node (exact match)
+        index_html = next((n for n in data["nodes"] if n["path"] == "index.html"), None)
         assert index_html is not None, "index.html not found in dependency graph"
         
         # Check for edges from index.html to CSS/JS files
-        html_edges = [e for e in data["edges"] if "index.html" in e["source"]]
-        assert len(html_edges) > 0, "No dependencies found from index.html"
+        html_edges = [e for e in data["edges"] if e["source"] == "index.html"]
+        assert len(html_edges) == 4, f"Expected 4 dependencies from index.html, got {len(html_edges)}"
+        
+        # Verify specific expected dependencies
+        targets = {e["target"] for e in html_edges}
+        expected_targets = {
+            "styles/main.css",
+            "styles/components.css",
+            "js/utils.js",
+            "js/app.js"
+        }
+        assert targets == expected_targets, f"Unexpected dependency targets for index.html. Expected {expected_targets}, got {targets}"
     
     def test_swift_csharp_interface_detection(self, tmp_path):
         """Test that C# interfaces are correctly identified."""

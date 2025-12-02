@@ -1,4 +1,5 @@
-import { formatDate, capitalize } from './utils.js';
+// Application logic - uses utilities from utils.js
+// Note: Using global scope since HTML loads scripts without type="module"
 
 class App {
     constructor() {
