@@ -423,6 +423,50 @@ class TestMultiLanguageTreeReport:
         assert any(marker in content for marker in ["├──", "└──", "│"])
 
 
+class TestGoldenOutputs:
+    """Test against golden (reference) outputs for regression detection."""
+    
+    def test_c_cpp_rust_matches_golden_schema(self, tmp_path):
+        """Test that C/C++/Rust fixture produces schema-compatible output with golden file."""
+        golden_dir = FIXTURES_DIR.parent / "golden_outputs" / "c_cpp_rust"
+        
+        if not golden_dir.exists():
+            pytest.skip("Golden outputs not available")
+        
+        output = tmp_path / "output"
+        output.mkdir()
+        
+        # Generate fresh output
+        generate_file_summaries(
+            C_CPP_RUST_FIXTURE,
+            output,
+            include_patterns=["*.*"],
+            detail_level="standard"
+        )
+        
+        # Load golden and generated outputs
+        golden_json = json.loads((golden_dir / "file-summaries.json").read_text())
+        generated_json = json.loads((output / "file-summaries.json").read_text())
+        
+        # Compare structure (not exact content, as that may legitimately change)
+        assert golden_json["schema_version"] == generated_json["schema_version"]
+        assert golden_json["total_files"] == generated_json["total_files"]
+        
+        # Verify same files are present
+        golden_paths = {f["path"] for f in golden_json["files"]}
+        generated_paths = {f["path"] for f in generated_json["files"]}
+        assert golden_paths == generated_paths, "File paths differ from golden output"
+        
+        # Verify all required fields are present in generated output
+        for gen_file in generated_json["files"]:
+            assert "schema_version" in gen_file
+            assert "path" in gen_file
+            assert "language" in gen_file
+            assert "role" in gen_file
+            assert "role_justification" in gen_file
+            assert "metrics" in gen_file
+
+
 class TestCrossFixtureConsistency:
     """Test consistency across all fixtures."""
     
