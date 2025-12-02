@@ -141,6 +141,7 @@ Configure language support through the `language_config` section:
 - **`disabled_languages`**: Explicitly disable specific languages
   - Languages in this list will not be analyzed
   - Useful for excluding languages you don't want to track
+  - Takes precedence over `enabled_languages` if a language appears in both
   - Example: `["Ruby", "PHP"]`
 
 - **`language_overrides`**: Fine-tune individual language settings
@@ -155,12 +156,20 @@ Configure language support through the `language_config` section:
     }
     ```
 
+**Configuration Processing Order:**
+1. `enabled_languages` is processed first (if specified, disables all other languages)
+2. `disabled_languages` is processed second (disables specified languages)
+3. `language_overrides` is processed last (applies individual settings)
+
+**Note:** If a language appears in both `enabled_languages` and `disabled_languages`, it will be disabled (disabled takes precedence).
+
 #### Extension Conflict Resolution
 
 Some file extensions are shared across multiple languages (e.g., `.h` for C/C++). The registry uses **priority-based resolution**:
 
 - Each language has a priority (default priorities: 2-10)
 - Higher priority wins for shared extensions
+- **Equal priorities**: When two languages have equal priority for a shared extension, behavior is implementation-defined (last registered typically wins)
 - Default priorities favor:
   - Full-support languages (priority 10): Python, JavaScript, TypeScript
   - Primary compiled languages (priority 8-9): C++, C, C#, Rust, Go, Java, Swift

@@ -367,6 +367,7 @@ class LanguageRegistry:
         """
         Register a language in the registry.
         
+        This will rebuild the extension map to handle priority changes.
         For extension conflicts, the language with higher priority wins.
         If priorities are equal, the first registered language is used.
         
@@ -374,33 +375,22 @@ class LanguageRegistry:
             language: Language capability to register
         """
         self._languages[language.name] = language
-        
-        # Build extension map with priority resolution
-        for ext in language.extensions:
-            ext_lower = ext.lower()
-            
-            # Check if extension already mapped
-            if ext_lower in self._extension_map:
-                existing_lang_name = self._extension_map[ext_lower]
-                existing_lang = self._languages[existing_lang_name]
-                
-                # Only update if new language has higher priority
-                if language.priority > existing_lang.priority:
-                    self._extension_map[ext_lower] = language.name
-            else:
-                self._extension_map[ext_lower] = language.name
+        self._rebuild_extension_map()
     
     def get_language_by_extension(self, extension: str) -> Optional[str]:
         """
-        Get language name for a file extension.
+        Get language name for a file extension if the language is enabled.
         
         Args:
             extension: File extension (e.g., ".py", ".js")
         
         Returns:
-            Language name or None if not found
+            Language name if found and enabled, or None otherwise
         """
-        return self._extension_map.get(extension.lower())
+        lang_name = self._extension_map.get(extension.lower())
+        if lang_name and self.is_language_enabled(lang_name):
+            return lang_name
+        return None
     
     def get_language(self, name: str) -> Optional[LanguageCapability]:
         """
@@ -498,33 +488,68 @@ class LanguageRegistry:
             }
         }
         
+        Configuration is applied in this order:
+        1. enabled_languages (if specified, disables all others first)
+        2. disabled_languages (disables specified languages)
+        3. language_overrides (applies individual settings)
+        
+        Note: If a language appears in both enabled_languages and disabled_languages,
+        it will be disabled (disabled_languages takes precedence).
+        
         Args:
             config: Configuration dictionary
         """
+        # Validate config structure
+        if not isinstance(config, dict):
+            raise ValueError("Configuration must be a dictionary")
+        
         # Apply enabled/disabled lists
         enabled_languages = config.get("enabled_languages")
         if enabled_languages is not None:
+            if not isinstance(enabled_languages, list):
+                raise ValueError("enabled_languages must be a list")
             # If explicit enabled list provided, disable all first
             for lang in self._languages.values():
                 lang.enabled = False
             # Then enable specified languages
             for name in enabled_languages:
-                self.enable_language(name)
+                if not isinstance(name, str):
+                    raise ValueError(f"Language name must be a string, got {type(name)}")
+                if not self.enable_language(name):
+                    # Language not found - log but don't fail
+                    pass
         
         disabled_languages = config.get("disabled_languages", [])
+        if not isinstance(disabled_languages, list):
+            raise ValueError("disabled_languages must be a list")
         for name in disabled_languages:
+            if not isinstance(name, str):
+                raise ValueError(f"Language name must be a string, got {type(name)}")
             self.disable_language(name)
         
         # Apply language-specific overrides
         priority_changed = False
         overrides = config.get("language_overrides", {})
+        if not isinstance(overrides, dict):
+            raise ValueError("language_overrides must be a dictionary")
+        
         for name, settings in overrides.items():
+            if not isinstance(name, str):
+                raise ValueError(f"Language name must be a string, got {type(name)}")
+            if not isinstance(settings, dict):
+                raise ValueError(f"Language settings must be a dictionary, got {type(settings)}")
+            
             if name in self._languages:
                 lang = self._languages[name]
                 if "enabled" in settings:
+                    if not isinstance(settings["enabled"], bool):
+                        raise ValueError(f"enabled setting must be a boolean")
                     lang.enabled = settings["enabled"]
                 if "priority" in settings:
-                    lang.priority = settings["priority"]
+                    priority = settings["priority"]
+                    if not isinstance(priority, (int, float)):
+                        raise ValueError(f"priority setting must be a number")
+                    lang.priority = int(priority)
                     priority_changed = True
         
         # Rebuild extension map if any priority changed

@@ -390,7 +390,20 @@ def run_scan(config: Dict[str, Any]) -> int:
             registry = get_global_registry()
             enabled_languages = registry.get_enabled_languages()
             # Generate patterns like *.py, *.js from all enabled language extensions
-            include_patterns = [f"*{ext}" for lang in enabled_languages for ext in lang.extensions]
+            # Validate extensions start with a dot and contain only valid glob characters
+            include_patterns = []
+            for lang in enabled_languages:
+                for ext in lang.extensions:
+                    # Ensure extension format is valid (starts with dot)
+                    if ext.startswith('.') and len(ext) > 1:
+                        # Create glob pattern
+                        pattern = f"*{ext}"
+                        include_patterns.append(pattern)
+            
+            # If no valid patterns generated, fall back to empty list (scan nothing)
+            # This is safer than scanning all files
+            if not include_patterns:
+                print("Warning: No valid file patterns generated from enabled languages")
         
         # Get exclude patterns from file_summary_config
         file_exclude_patterns = file_summary_config.get('exclude_patterns', [])
