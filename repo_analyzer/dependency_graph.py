@@ -35,6 +35,53 @@ class DependencyGraphError(Exception):
     pass
 
 
+def _remove_c_style_comments(content: str) -> str:
+    """
+    Remove C-style comments (// and /* */) from content.
+    
+    Args:
+        content: Source code content
+    
+    Returns:
+        Content with comments removed
+    """
+    # Remove multi-line comments /* ... */
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    
+    # Remove single-line comments //
+    lines = []
+    for line in content.split('\n'):
+        if '//' in line:
+            # Simple split - doesn't handle // in strings perfectly but good enough
+            line = line.split('//')[0]
+        lines.append(line)
+    
+    return '\n'.join(lines)
+
+
+def _remove_sql_comments(content: str) -> str:
+    """
+    Remove SQL-style comments (-- and /* */) from content.
+    
+    Args:
+        content: SQL code content
+    
+    Returns:
+        Content with comments removed
+    """
+    # Remove multi-line comments /* ... */
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    
+    # Remove single-line comments --
+    lines = []
+    for line in content.split('\n'):
+        if '--' in line:
+            line = line.split('--')[0]
+        lines.append(line)
+    
+    return '\n'.join(lines)
+
+
 def _parse_python_imports(content: str, file_path: Path) -> List[str]:
     """
     Parse Python import statements to extract imported modules.
@@ -318,16 +365,7 @@ def _parse_c_cpp_includes(content: str, file_path: Path) -> List[str]:
     includes = []
     
     # Remove comments to avoid false positives
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        # Remove // comments
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match #include "header.h" or #include <header.h>
     # Pattern captures both quoted includes ("...") and angle-bracket includes (<...>)
@@ -357,15 +395,7 @@ def _parse_rust_imports(content: str, file_path: Path) -> List[str]:
     imports = []
     
     # Remove comments
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match 'use module::path;' statements
     use_pattern = r'^\s*use\s+([\w:]+)'
@@ -404,15 +434,7 @@ def _parse_go_imports(content: str, file_path: Path) -> List[str]:
     imports = []
     
     # Remove comments
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match 'import "package"' or 'import alias "package"'
     # Alias can be a word or dot (.)
@@ -464,15 +486,7 @@ def _parse_java_imports(content: str, file_path: Path) -> List[str]:
     imports = []
     
     # Remove comments
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match 'import package.Class;' or 'import static package.Class.method;'
     import_pattern = r'^\s*import\s+(?:static\s+)?([\w.]+)'
@@ -500,15 +514,7 @@ def _parse_csharp_imports(content: str, file_path: Path) -> List[str]:
     imports = []
     
     # Remove comments
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match 'using Namespace;' or 'using Alias = Namespace;'
     using_pattern = r'^\s*using\s+(?:[\w]+\s*=\s*)?([\w.]+)'
@@ -536,15 +542,7 @@ def _parse_swift_imports(content: str, file_path: Path) -> List[str]:
     imports = []
     
     # Remove comments
-    # Remove multi-line comments
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments
-    lines = []
-    for line in content.split('\n'):
-        if '//' in line:
-            line = line.split('//')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_c_style_comments(content)
     
     # Match 'import Module' or 'import kind Module' (e.g., 'import struct Foundation.URL')
     import_pattern = r'^\s*import\s+(?:(?:struct|class|enum|protocol|typealias|func|let|var)\s+)?([\w.]+)'
@@ -571,6 +569,14 @@ def _parse_html_css_references(content: str, file_path: Path) -> List[str]:
     """
     references = []
     
+    # CDN domains to filter out - expanded list
+    CDN_DOMAINS = [
+        'cdn.', 'unpkg.', 'jsdelivr.', 'cloudflare.',
+        'cdnjs.', 'rawgit.', 'gitcdn.', 'staticfile.',
+        'bootcdn.', 'maxcdn.', 'yandex.', 'ajax.googleapis.',
+        'code.jquery.', 'stackpath.bootstrapcdn.'
+    ]
+    
     # For HTML: match href and src attributes with local paths
     # Pattern captures href="..." and src="..."
     html_ref_pattern = r'(?:href|src)\s*=\s*["\']([^"\']+)["\']'
@@ -581,16 +587,16 @@ def _parse_html_css_references(content: str, file_path: Path) -> List[str]:
     for match in re.finditer(html_ref_pattern, content, re.IGNORECASE):
         ref = match.group(1)
         # Skip absolute URLs (http://, https://, //, etc.)
-        if not ref.startswith(('http://', 'https://', '//', 'data:', 'mailto:', 'tel:', '#')):
-            # Skip CDN and external references
-            if not any(domain in ref for domain in ['cdn.', 'unpkg.', 'jsdelivr.', 'cloudflare.']):
+        if not ref.startswith(('http://', 'https://', '//', 'data:', 'mailto:', 'tel:', '#', 'javascript:')):
+            # Skip CDN and external references - check if any CDN domain is in the ref
+            if not any(domain in ref.lower() for domain in CDN_DOMAINS):
                 references.append(ref)
     
     for match in re.finditer(css_ref_pattern, content, re.IGNORECASE):
         ref = match.group(1)
         # Skip absolute URLs
         if not ref.startswith(('http://', 'https://', '//', 'data:')):
-            if not any(domain in ref for domain in ['cdn.', 'unpkg.', 'jsdelivr.', 'cloudflare.']):
+            if not any(domain in ref.lower() for domain in CDN_DOMAINS):
                 references.append(ref)
     
     return references
@@ -610,15 +616,7 @@ def _parse_sql_includes(content: str, file_path: Path) -> List[str]:
     includes = []
     
     # Remove SQL comments
-    # Remove multi-line comments /* ... */
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove single-line comments --
-    lines = []
-    for line in content.split('\n'):
-        if '--' in line:
-            line = line.split('--')[0]
-        lines.append(line)
-    content = '\n'.join(lines)
+    content = _remove_sql_comments(content)
     
     # Match various SQL include patterns (vendor-specific)
     # PostgreSQL: \i filename or \include filename
@@ -956,31 +954,6 @@ def _resolve_rust_import(
     return None
 
 
-def _resolve_generic_import(
-    import_path: str,
-    source_file: Path,
-    repo_root: Path,
-    extensions: List[str]
-) -> Optional[Path]:
-    """
-    Generic import resolver for languages where imports reference file paths.
-    Used for Go, Java, C#, and Swift when they reference local project files.
-    
-    Args:
-        import_path: Import string
-        source_file: Path to the file containing the import
-        repo_root: Repository root directory
-        extensions: List of file extensions to try
-    
-    Returns:
-        Resolved Path or None if not found/external
-    """
-    # For most compiled languages, imports reference package/module names,
-    # not file paths, so intra-repo resolution is limited.
-    # This function is primarily a placeholder for potential future enhancements.
-    return None
-
-
 def _resolve_html_css_reference(
     ref_path: str,
     source_file: Path,
@@ -997,14 +970,26 @@ def _resolve_html_css_reference(
     Returns:
         Resolved Path or None if not found/external
     """
+    # Validate input - reject potentially malicious paths
+    if '..' in ref_path.split('/'):
+        # Allow ../ for relative navigation, but be cautious
+        pass
+    
+    # Reject null bytes and other dangerous characters
+    if '\x00' in ref_path or '\n' in ref_path or '\r' in ref_path:
+        return None
+    
     # Get the directory containing the source file
     source_dir = source_file.parent
+    
+    # Normalize repo_root to absolute path
+    repo_root = repo_root.resolve()
     
     # Resolve relative path
     if ref_path.startswith('./') or ref_path.startswith('../'):
         try:
-            resolved = (source_dir / ref_path).resolve()
-            # Check if it's within the repository
+            resolved = (source_dir / ref_path).resolve(strict=False)
+            # SECURITY: Ensure resolved path is within repository
             resolved.relative_to(repo_root)
             if resolved.exists() and resolved.is_file():
                 return resolved
@@ -1013,7 +998,8 @@ def _resolve_html_css_reference(
     elif not ref_path.startswith('/'):
         # Relative path without ./ prefix
         try:
-            resolved = (source_dir / ref_path).resolve()
+            resolved = (source_dir / ref_path).resolve(strict=False)
+            # SECURITY: Ensure resolved path is within repository
             resolved.relative_to(repo_root)
             if resolved.exists() and resolved.is_file():
                 return resolved
@@ -1022,7 +1008,8 @@ def _resolve_html_css_reference(
     elif ref_path.startswith('/'):
         # Absolute path from repo root
         try:
-            resolved = (repo_root / ref_path.lstrip('/')).resolve()
+            resolved = (repo_root / ref_path.lstrip('/')).resolve(strict=False)
+            # SECURITY: Ensure resolved path is within repository
             resolved.relative_to(repo_root)
             if resolved.exists() and resolved.is_file():
                 return resolved
