@@ -330,7 +330,8 @@ def _parse_c_cpp_includes(content: str, file_path: Path) -> List[str]:
     content = '\n'.join(lines)
     
     # Match #include "header.h" or #include <header.h>
-    # Pattern captures both quoted and angle-bracket includes
+    # Pattern captures both quoted includes ("...") and angle-bracket includes (<...>)
+    # The character class [<"] matches either < or ", and [>"] matches either > or "
     include_pattern = r'^\s*#\s*include\s*[<"]([^>"]+)[>"]'
     
     for line in content.split('\n'):

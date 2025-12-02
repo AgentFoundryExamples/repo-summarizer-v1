@@ -462,10 +462,13 @@ def classify_csharp_import(namespace: str) -> DependencyType:
     top_level = parts[0]
     
     # Check for System.* and Microsoft.* standard namespaces
+    # All System.* and Microsoft.* namespaces are considered stdlib
     if top_level in ['System', 'Microsoft']:
-        # Check if full namespace or top-level is in stdlib
-        if namespace in CSHARP_STDLIB or top_level in ['System', 'Microsoft']:
-            return "stdlib"
+        return "stdlib"
+    
+    # Check if full namespace is explicitly in stdlib list
+    if namespace in CSHARP_STDLIB:
+        return "stdlib"
     
     # Everything else is third-party
     return "third-party"
