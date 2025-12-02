@@ -9,4 +9,6 @@ A tool for analyzing repository structure, generating file summaries,
 and tracking dependencies.
 """
 
-__version__ = "0.1.0"
+import importlib.metadata
+
+__version__ = importlib.metadata.version("repo-analyzer")
