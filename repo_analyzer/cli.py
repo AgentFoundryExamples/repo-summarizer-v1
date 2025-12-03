@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set
 
 from repo_analyzer import __version__
 from repo_analyzer.tree_report import generate_tree_report, TreeReportError
@@ -23,6 +23,17 @@ from repo_analyzer.language_registry import get_global_registry
 
 DEFAULT_CONFIG_FILE = "repo-analyzer.config.json"
 DEFAULT_OUTPUT_DIR = "repo-analysis-output"
+
+# Language detection configuration
+MAX_FILES_TO_CHECK_FOR_DETECTION = 1000
+LOW_LEVEL_LANGUAGES = {"C", "C++", "Rust", "ASM", "Perl"}
+
+# Parser installation instructions
+PARSER_INSTALL_INSTRUCTIONS = {
+    "tree_sitter": "pip install tree-sitter tree-sitter-rust tree-sitter-c tree-sitter-perl",
+    "libclang": "pip install libclang (for C/C++ with compiler-grade accuracy)"
+}
+
 
 
 class ConfigurationError(Exception):
@@ -149,6 +160,123 @@ def apply_language_config(config: Dict[str, Any]) -> None:
     if language_config:
         registry = get_global_registry()
         registry.apply_config(language_config)
+
+
+def detect_repository_languages(root_path: Path, exclude_patterns: List[str]) -> Set[str]:
+    """
+    Detect which languages are present in the repository by scanning file extensions.
+    
+    This function performs a quick scan of the repository to identify which
+    programming languages are used, allowing the CLI to auto-enable appropriate
+    parsers and include patterns.
+    
+    Args:
+        root_path: Root directory to scan
+        exclude_patterns: Patterns to exclude from scanning
+    
+    Returns:
+        Set of detected language names (e.g., {"Python", "C", "C++", "Rust"})
+    """
+    from repo_analyzer.tree_report import DEFAULT_EXCLUDES, _should_exclude
+    
+    detected_languages = set()
+    registry = get_global_registry()
+    
+    # Combine default excludes with user-provided patterns
+    all_excludes = DEFAULT_EXCLUDES.copy()
+    all_excludes.update(exclude_patterns)
+    
+    # Quick scan: only check up to MAX_FILES_TO_CHECK_FOR_DETECTION files to avoid performance issues
+    files_checked = 0
+    
+    try:
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            # Filter out excluded directories in-place
+            dirnames[:] = [d for d in dirnames if not _should_exclude(d, all_excludes)]
+            
+            for filename in filenames:
+                if files_checked >= MAX_FILES_TO_CHECK_FOR_DETECTION:
+                    break
+                    
+                # Skip excluded files
+                if _should_exclude(filename, all_excludes):
+                    continue
+                
+                # Get file extension
+                ext = os.path.splitext(filename)[1]
+                if ext:
+                    # Check if this extension is registered, regardless of enabled status
+                    lang_name = registry.get_language_by_extension_unfiltered(ext)
+                    if lang_name:
+                        detected_languages.add(lang_name)
+                        
+                        # Early termination: if we've detected all low-level languages, we can stop
+                        # This optimizes performance for large repositories
+                        if LOW_LEVEL_LANGUAGES.issubset(detected_languages):
+                            return detected_languages
+                
+                files_checked += 1
+            
+            if files_checked >= MAX_FILES_TO_CHECK_FOR_DETECTION:
+                break
+                
+    except (PermissionError, OSError) as e:
+        # If we can't scan a directory, log a warning and return what was found.
+        print(f"Warning: Could not scan part of the repository due to a file system error: {e}", file=sys.stderr)
+        pass
+    
+    return detected_languages
+
+
+def auto_enable_detected_languages(config: Dict[str, Any], repo_root: Path) -> None:
+    """
+    Auto-enable languages detected in the repository.
+    
+    This function scans the repository to detect which languages are present
+    and automatically enables them in the language registry. This ensures that
+    new low-level languages (C, C++, Rust, ASM, Perl) are analyzed when present
+    without requiring explicit configuration changes.
+    
+    Args:
+        config: Configuration dictionary
+        repo_root: Root directory of the repository
+    """
+    # Only auto-detect if enabled_languages is not explicitly set
+    language_config = config.get('language_config', {})
+    if language_config.get('enabled_languages') is not None:
+        # User has explicitly set enabled languages, respect their choice
+        return
+    
+    # Get exclude patterns for scanning
+    tree_config = config.get('tree_config', {})
+    exclude_patterns = tree_config.get('exclude_patterns', [])
+    
+    # Detect languages in the repository
+    detected_languages = detect_repository_languages(repo_root, exclude_patterns)
+    
+    # Low-level languages that should be highlighted
+    detected_low_level = detected_languages & LOW_LEVEL_LANGUAGES
+    
+    if detected_low_level:
+        print(f"Auto-detected low-level languages: {', '.join(sorted(detected_low_level))}")
+        
+        # Check parser availability for detected low-level languages
+        from repo_analyzer.parser_adapters import get_parser_capability
+        
+        parser_warnings = []
+        for lang in detected_low_level:
+            capability = get_parser_capability(lang)
+            if not capability.available and capability.unavailable_reason:
+                parser_warnings.append(f"  - {lang}: {capability.unavailable_reason}")
+        
+        if parser_warnings:
+            print("\nOptional parser availability:")
+            for warning in parser_warnings:
+                print(warning)
+            print("\nNote: Regex-based parsing will be used (production-ready with full symbol extraction).")
+            print("To enable structured parsing, install optional dependencies:")
+            for install_type, command in PARSER_INSTALL_INSTRUCTIONS.items():
+                print(f"  - {command}")
 
 
 def validate_output_path(output_dir: str) -> Path:
@@ -351,6 +479,14 @@ def run_scan(config: Dict[str, Any]) -> int:
     dry_run = config['dry_run']
     
     try:
+        # Get repository root early for language detection
+        repo_root = get_repository_root()
+        if repo_root is None:
+            repo_root = Path.cwd()
+        
+        # Auto-enable detected languages before applying config
+        auto_enable_detected_languages(config, repo_root)
+        
         # Apply language configuration to the registry
         apply_language_config(config)
         
@@ -364,10 +500,6 @@ def run_scan(config: Dict[str, Any]) -> int:
         write_summary_template(output_dir, dry_run)
         
         # Generate tree report
-        repo_root = get_repository_root()
-        if repo_root is None:
-            repo_root = Path.cwd()
-        
         tree_config = config.get('tree_config', {})
         exclude_patterns = tree_config.get('exclude_patterns', [])
         max_depth = tree_config.get('max_depth')

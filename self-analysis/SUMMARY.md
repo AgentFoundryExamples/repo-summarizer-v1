@@ -85,11 +85,29 @@ Human-readable format: [dependencies.md](dependencies.md)
 
 This analysis was generated using the configuration in repo-analyzer.config.json:
 - **Multi-Language**: 40+ languages with configurable language registry
+- **Auto-Detection**: CLI automatically detects and enables low-level languages (C, C++, Rust, ASM, Perl)
+- **Parser Architecture**: Layered approach with structured parsers (tree-sitter, libclang) and regex fallbacks
 - **Detail Level**: Configurable (minimal/standard/detailed)
 - **Legacy Compatibility**: Backward-compatible with v1.0 consumers - existing tools continue to work
 - **Max File Size**: Configurable threshold for expensive parsing operations
 - **Excluded Patterns**: Customizable exclusion rules for tree traversal
 - **Air-Gapped Friendly**: No secrets or network connectivity required (see [.env.example](../.env.example))
+
+### Parser Configuration
+
+The analyzer supports optional structured parsers for enhanced accuracy:
+
+- **tree-sitter**: Fast incremental parser for Rust, C, C++, Perl
+  - Installation: `pip install tree-sitter tree-sitter-<language>`
+  - Graceful degradation: Falls back to regex if unavailable
+  
+- **libclang**: Compiler-grade accuracy for C/C++
+  - Installation: `pip install libclang` (requires system libclang library)
+  - Graceful degradation: Falls back to tree-sitter or regex if unavailable
+
+- **Regex fallback**: Production-ready parsing with full symbol extraction
+  - Always available, no dependencies required
+  - Provides complete functionality for all low-level languages
 
 For configuration options, see repo-analyzer.config.json or the project README.
 

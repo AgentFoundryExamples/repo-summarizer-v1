@@ -448,6 +448,21 @@ class LanguageRegistry:
             return lang_name
         return None
     
+    def get_language_by_extension_unfiltered(self, extension: str) -> Optional[str]:
+        """
+        Get language name for a file extension regardless of enabled status.
+        
+        This method is useful for language detection where we want to know
+        what languages are present in a repository before deciding which to enable.
+        
+        Args:
+            extension: File extension (e.g., ".py", ".js")
+        
+        Returns:
+            Language name if found, or None otherwise (regardless of enabled status)
+        """
+        return self._extension_map.get(extension.lower())
+    
     def get_language(self, name: str) -> Optional[LanguageCapability]:
         """
         Get language capability by name.
