@@ -934,6 +934,21 @@ def _create_structured_summary(
                 declarations, warning = _parse_js_ts_exports(content)
                 if warning:
                     structure_warning = warning
+            elif language in ["C", "C++", "Rust", "ASM", "Perl"]:
+                # Use parser_adapters for low-level languages
+                from repo_analyzer.parser_adapters import extract_symbols
+                try:
+                    parsed = extract_symbols(language, content, file_path)
+                    # Combine all symbols into declarations list
+                    declarations.extend(parsed.functions)
+                    declarations.extend(parsed.classes)
+                    declarations.extend(parsed.variables)
+                    declarations.extend(parsed.asm_labels)
+                    # Add any warnings
+                    if parsed.warnings:
+                        structure_warning = "; ".join(parsed.warnings)
+                except Exception as e:
+                    structure_warning = f"Symbol extraction failed: {str(e)}"
             else:
                 structure_warning = f"No parser available for {language}"
     

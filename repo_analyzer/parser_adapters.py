@@ -160,9 +160,9 @@ def get_parser_capability(language: str) -> ParserCapability:
                     available=True
                 )
             else:
-                # Fallback to regex (existing implementation)
+                # Fallback to regex - can extract symbols with regex patterns
                 capability = ParserCapability(
-                    can_extract_symbols=False,
+                    can_extract_symbols=True,  # Regex can extract functions/classes/macros
                     can_extract_dependencies=True,  # Regex can extract includes
                     can_extract_asm_labels=False,
                     parser_type=ParserType.REGEX_FALLBACK,
@@ -180,9 +180,9 @@ def get_parser_capability(language: str) -> ParserCapability:
                 available=True
             )
         else:
-            # Fallback to regex (existing implementation)
+            # Fallback to regex - can extract symbols with regex patterns
             capability = ParserCapability(
-                can_extract_symbols=False,
+                can_extract_symbols=True,  # Regex can extract fn/struct/trait/impl
                 can_extract_dependencies=True,  # Regex can extract use/mod
                 can_extract_asm_labels=False,
                 parser_type=ParserType.REGEX_FALLBACK,
@@ -372,6 +372,189 @@ def parse_perl_dependencies(content: str, file_path: Path) -> List[str]:
     return dependencies
 
 
+def parse_c_cpp_symbols(content: str, file_path: Path, language: str) -> ParsedSymbols:
+    """
+    Parse C/C++ source to extract functions, classes (C++ only), structs, and macros.
+    
+    Uses regex-based parsing for compatibility without libclang/tree-sitter.
+    
+    Args:
+        content: C/C++ source code
+        file_path: Path to the file (for context in warnings)
+        language: "C" or "C++"
+    
+    Returns:
+        ParsedSymbols with extracted C/C++ declarations
+    """
+    result = ParsedSymbols(parser_used=ParserType.REGEX_FALLBACK)
+    
+    # Remove comments to avoid false positives
+    # Remove single-line comments
+    content_no_single = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    # Remove multi-line comments
+    content_clean = re.sub(r'/\*.*?\*/', '', content_no_single, flags=re.DOTALL)
+    
+    # Pattern for function declarations/definitions
+    # Matches: return_type function_name(...) or return_type* function_name(...)
+    func_pattern = re.compile(
+        r'^\s*(?:extern\s+)?(?:static\s+)?(?:inline\s+)?'  # Optional modifiers
+        r'(?:[\w_][\w\d_]*(?:\s*\*+\s*|\s+))'  # Return type with optional pointer
+        r'([\w_][\w\d_]*)\s*\([^)]*\)\s*(?:[;{]|$)',  # Function name and params
+        re.MULTILINE
+    )
+    
+    # Pattern for C++ class/struct declarations
+    # Matches: class ClassName or struct StructName
+    class_pattern = re.compile(
+        r'^\s*(?:class|struct)\s+([A-Za-z_][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for #define macros (function-like and constants)
+    # Matches: #define NAME or #define NAME(...)
+    macro_pattern = re.compile(
+        r'^\s*#\s*define\s+([A-Z_][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for global variable declarations (extern or top-level)
+    # Matches: extern type name; or static type name;
+    global_var_pattern = re.compile(
+        r'^\s*(?:extern|static)\s+(?:const\s+)?(?:[\w_][\w\d_]*(?:\s*\*+\s*|\s+))'
+        r'([A-Za-z_][\w]*)\s*(?:=|;)',
+        re.MULTILINE
+    )
+    
+    # Extract functions
+    seen_functions = set()
+    for match in func_pattern.finditer(content_clean):
+        func_name = match.group(1)
+        # Filter out common keywords and constructors
+        if func_name not in ['if', 'while', 'for', 'switch', 'return'] and func_name not in seen_functions:
+            result.functions.append(f"function {func_name}")
+            seen_functions.add(func_name)
+    
+    # Extract classes/structs
+    if language == "C++":
+        for match in class_pattern.finditer(content_clean):
+            class_name = match.group(1)
+            result.classes.append(f"class {class_name}")
+    elif language == "C":
+        # In C, treat structs as types
+        for match in class_pattern.finditer(content_clean):
+            struct_name = match.group(1)
+            result.classes.append(f"struct {struct_name}")
+    
+    # Extract macros
+    for match in macro_pattern.finditer(content):
+        macro_name = match.group(1)
+        result.variables.append(f"#define {macro_name}")
+    
+    # Extract global variables
+    for match in global_var_pattern.finditer(content_clean):
+        var_name = match.group(1)
+        result.variables.append(f"global {var_name}")
+    
+    return result
+
+
+def parse_rust_symbols(content: str, file_path: Path) -> ParsedSymbols:
+    """
+    Parse Rust source to extract functions, structs, traits, impls, and enums.
+    
+    Uses regex-based parsing for compatibility without tree-sitter.
+    
+    Args:
+        content: Rust source code
+        file_path: Path to the file (for context in warnings)
+    
+    Returns:
+        ParsedSymbols with extracted Rust declarations
+    """
+    result = ParsedSymbols(parser_used=ParserType.REGEX_FALLBACK)
+    
+    # Remove comments to avoid false positives
+    # Remove single-line comments
+    content_no_single = re.sub(r'//.*?$', '', content, flags=re.MULTILINE)
+    # Remove multi-line comments (/* ... */)
+    content_clean = re.sub(r'/\*.*?\*/', '', content_no_single, flags=re.DOTALL)
+    
+    # Pattern for function declarations
+    # Matches: pub fn name, fn name, pub async fn name, pub unsafe fn name, etc.
+    func_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:const\s+)?fn\s+([A-Za-z_][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for struct declarations
+    # Matches: pub struct Name, struct Name
+    struct_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?struct\s+([A-Z][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for enum declarations
+    # Matches: pub enum Name, enum Name
+    enum_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?enum\s+([A-Z][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for trait declarations
+    # Matches: pub trait Name, trait Name
+    trait_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?trait\s+([A-Z][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Pattern for impl blocks
+    # Matches: impl Name, impl Trait for Name, impl<T> Name
+    impl_pattern = re.compile(
+        r'^\s*impl(?:<[^>]+>)?\s+(?:([A-Z][\w]*)|(?:[\w:]+)\s+for\s+([A-Z][\w]*))',
+        re.MULTILINE
+    )
+    
+    # Pattern for const/static declarations
+    # Matches: pub const NAME, pub static NAME
+    const_pattern = re.compile(
+        r'^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:const|static)\s+([A-Z_][\w]*)',
+        re.MULTILINE
+    )
+    
+    # Extract functions
+    for match in func_pattern.finditer(content_clean):
+        func_name = match.group(1)
+        result.functions.append(f"fn {func_name}")
+    
+    # Extract structs
+    for match in struct_pattern.finditer(content_clean):
+        struct_name = match.group(1)
+        result.classes.append(f"struct {struct_name}")
+    
+    # Extract enums
+    for match in enum_pattern.finditer(content_clean):
+        enum_name = match.group(1)
+        result.classes.append(f"enum {enum_name}")
+    
+    # Extract traits
+    for match in trait_pattern.finditer(content_clean):
+        trait_name = match.group(1)
+        result.classes.append(f"trait {trait_name}")
+    
+    # Extract impl blocks
+    for match in impl_pattern.finditer(content_clean):
+        impl_name = match.group(1) or match.group(2)
+        if impl_name:
+            result.classes.append(f"impl {impl_name}")
+    
+    # Extract const/static
+    for match in const_pattern.finditer(content_clean):
+        const_name = match.group(1)
+        result.variables.append(f"const {const_name}")
+    
+    return result
+
+
 def extract_symbols(
     language: str,
     content: str,
@@ -404,15 +587,12 @@ def extract_symbols(
     elif language == "Perl":
         # Perl can extract symbols even with regex fallback
         return parse_perl_symbols(content, file_path)
-    elif language in ["C", "C++", "Rust"]:
-        # For now, return empty result with note
-        # Future: Implement tree-sitter/libclang integration
-        result = ParsedSymbols()
-        if capability.can_extract_symbols:
-            result.warnings.append(f"{capability.parser_type.value} integration pending - using heuristics")
-        else:
-            result.warnings.append(f"Symbol extraction not yet implemented for {language}")
-        return result
+    elif language in ["C", "C++"]:
+        # Use regex-based C/C++ parser
+        return parse_c_cpp_symbols(content, file_path, language)
+    elif language == "Rust":
+        # Use regex-based Rust parser
+        return parse_rust_symbols(content, file_path)
     else:
         result = ParsedSymbols()
         result.warnings.append(f"No symbol extractor implemented for {language}")
