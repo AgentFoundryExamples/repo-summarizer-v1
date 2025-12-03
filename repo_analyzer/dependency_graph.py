@@ -641,38 +641,21 @@ def _parse_asm_includes(content: str, file_path: Path) -> List[str]:
         if stripped.startswith(';') or stripped.startswith('#') or stripped.startswith('//'):
             continue
         
-        # For inline comments, only strip if not in quotes
-        # Track quote state more carefully to avoid false positives
+        # For inline comments, find the first comment marker that is not inside quotes.
         stripped_line = line
-        for comment_marker in [';', '#']:  # Handle ; and # separately
-            if comment_marker in line:
-                # Check if marker is inside quotes by tracking quote state
-                in_single_quote = False
-                in_double_quote = False
-                for i, char in enumerate(line):
-                    if char == "'" and not in_double_quote:
-                        in_single_quote = not in_single_quote
-                    elif char == '"' and not in_single_quote:
-                        in_double_quote = not in_double_quote
-                    elif line[i:i+len(comment_marker)] == comment_marker and not in_single_quote and not in_double_quote:
-                        # Found comment marker outside quotes
-                        stripped_line = line[:i]
-                        break
-                break  # Only process first comment marker found
-        
-        # Handle // separately as it's two characters
-        if '//' in stripped_line:
-            in_single_quote = False
-            in_double_quote = False
-            for i in range(len(stripped_line) - 1):
-                char = stripped_line[i]
-                if char == "'" and not in_double_quote:
-                    in_single_quote = not in_single_quote
-                elif char == '"' and not in_single_quote:
-                    in_double_quote = not in_double_quote
-                elif stripped_line[i:i+2] == '//' and not in_single_quote and not in_double_quote:
-                    # Found comment marker outside quotes
-                    stripped_line = stripped_line[:i]
+        in_single_quote = False
+        in_double_quote = False
+        for i, char in enumerate(line):
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+            elif char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+            elif not in_single_quote and not in_double_quote:
+                if char in (';', '#'):
+                    stripped_line = line[:i]
+                    break
+                if line[i:i+2] == '//':
+                    stripped_line = line[:i]
                     break
         
         # Check gas .include
