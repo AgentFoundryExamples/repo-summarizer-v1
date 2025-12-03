@@ -265,7 +265,7 @@ def parse_asm_symbols(content: str, file_path: Path) -> ParsedSymbols:
     
     # Pattern for .type directives (indicates function vs object)
     # Matches: .type symbol_name, @function or .type symbol_name, @object
-    type_pattern = re.compile(r'^\s*\.type\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*@(function|object)', re.MULTILINE)
+    type_pattern = re.compile(r'^\s*\.type\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[@%]+(function|object)', re.MULTILINE)
     
     # Pattern for NASM global directives
     # Matches: global symbol_name
@@ -276,25 +276,32 @@ def parse_asm_symbols(content: str, file_path: Path) -> ParsedSymbols:
     masm_public_pattern = re.compile(r'^\s*PUBLIC\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE | re.IGNORECASE)
     
     # Pattern for label definitions
-    # Matches: label_name: (on its own line or start of line)
-    label_pattern = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)', re.MULTILINE)
+    # Matches: label_name: (potentially indented, on its own line or start of line)
+    label_pattern = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)', re.MULTILINE)
     
     # Track symbols we've seen to avoid duplicates
     seen_symbols: Set[str] = set()
     
-    # Extract .globl/.global symbols
-    for match in globl_pattern.finditer(content):
-        symbol = match.group(1)
-        if symbol not in seen_symbols:
-            result.asm_labels.append(f".globl {symbol}")
-            seen_symbols.add(symbol)
-    
-    # Extract .type annotations to distinguish functions from data
+    # First pass: Extract .type annotations to understand symbol types
     type_annotations: Dict[str, str] = {}
     for match in type_pattern.finditer(content):
         symbol = match.group(1)
         sym_type = match.group(2)
         type_annotations[symbol] = sym_type
+    
+    # Second pass: Extract .globl/.global symbols and categorize them
+    for match in globl_pattern.finditer(content):
+        symbol = match.group(1)
+        if symbol not in seen_symbols:
+            result.asm_labels.append(f".globl {symbol}")
+            seen_symbols.add(symbol)
+            
+            # Categorize based on type annotation
+            if symbol in type_annotations:
+                if type_annotations[symbol] == "function":
+                    result.functions.append(symbol)
+                else:
+                    result.variables.append(symbol)
     
     # Extract NASM global directives
     for match in nasm_global_pattern.finditer(content):
@@ -310,7 +317,7 @@ def parse_asm_symbols(content: str, file_path: Path) -> ParsedSymbols:
             result.asm_labels.append(f"PUBLIC {symbol}")
             seen_symbols.add(symbol)
     
-    # Extract label definitions and categorize them
+    # Extract standalone label definitions (not already captured)
     for match in label_pattern.finditer(content):
         label = match.group(1)
         # Skip if already processed
@@ -323,13 +330,11 @@ def parse_asm_symbols(content: str, file_path: Path) -> ParsedSymbols:
                 result.functions.append(label)
             else:
                 result.variables.append(label)
+            seen_symbols.add(label)
         else:
-            # Without type annotation, we can't reliably distinguish
-            # Put in asm_labels as a generic label
-            if label not in seen_symbols:
-                result.asm_labels.append(f"label {label}")
-        
-        seen_symbols.add(label)
+            # Without type annotation or directive, it's a local label
+            result.asm_labels.append(f"label {label}")
+            seen_symbols.add(label)
     
     return result
 
@@ -434,21 +439,20 @@ def extract_symbols(
         result.warnings.append(capability.unavailable_reason or "No parser available")
         return result
     
-    if not capability.can_extract_symbols:
-        result = ParsedSymbols()
-        result.warnings.append(f"Symbol extraction not supported for {language} with {capability.parser_type.value}")
-        return result
-    
     # Dispatch to language-specific parser
     if language == "ASM":
         return parse_asm_symbols(content, file_path)
     elif language == "Perl":
+        # Perl can extract symbols even with regex fallback
         return parse_perl_symbols(content, file_path)
     elif language in ["C", "C++", "Rust"]:
         # For now, return empty result with note
         # Future: Implement tree-sitter/libclang integration
         result = ParsedSymbols()
-        result.warnings.append(f"{capability.parser_type.value} integration pending - using heuristics")
+        if capability.can_extract_symbols:
+            result.warnings.append(f"{capability.parser_type.value} integration pending - using heuristics")
+        else:
+            result.warnings.append(f"Symbol extraction not yet implemented for {language}")
         return result
     else:
         result = ParsedSymbols()
