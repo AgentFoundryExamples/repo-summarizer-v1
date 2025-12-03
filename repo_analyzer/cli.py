@@ -24,6 +24,17 @@ from repo_analyzer.language_registry import get_global_registry
 DEFAULT_CONFIG_FILE = "repo-analyzer.config.json"
 DEFAULT_OUTPUT_DIR = "repo-analysis-output"
 
+# Language detection configuration
+MAX_FILES_TO_CHECK_FOR_DETECTION = 1000
+LOW_LEVEL_LANGUAGES = {"C", "C++", "Rust", "ASM", "Perl"}
+
+# Parser installation instructions
+PARSER_INSTALL_INSTRUCTIONS = {
+    "tree_sitter": "pip install tree-sitter tree-sitter-rust tree-sitter-c tree-sitter-perl",
+    "libclang": "pip install libclang (for C/C++ with compiler-grade accuracy)"
+}
+
+
 
 class ConfigurationError(Exception):
     """Raised when configuration is invalid."""
@@ -175,9 +186,8 @@ def detect_repository_languages(root_path: Path, exclude_patterns: List[str]) ->
     all_excludes = DEFAULT_EXCLUDES.copy()
     all_excludes.update(exclude_patterns)
     
-    # Quick scan: only check up to 1000 files to avoid performance issues
+    # Quick scan: only check up to MAX_FILES_TO_CHECK_FOR_DETECTION files to avoid performance issues
     files_checked = 0
-    max_files_to_check = 1000
     
     try:
         for dirpath, dirnames, filenames in os.walk(root_path):
@@ -185,7 +195,7 @@ def detect_repository_languages(root_path: Path, exclude_patterns: List[str]) ->
             dirnames[:] = [d for d in dirnames if not _should_exclude(d, all_excludes)]
             
             for filename in filenames:
-                if files_checked >= max_files_to_check:
+                if files_checked >= MAX_FILES_TO_CHECK_FOR_DETECTION:
                     break
                     
                 # Skip excluded files
@@ -202,7 +212,7 @@ def detect_repository_languages(root_path: Path, exclude_patterns: List[str]) ->
                 
                 files_checked += 1
             
-            if files_checked >= max_files_to_check:
+            if files_checked >= MAX_FILES_TO_CHECK_FOR_DETECTION:
                 break
                 
     except (PermissionError, OSError):
@@ -239,8 +249,7 @@ def auto_enable_detected_languages(config: Dict[str, Any], repo_root: Path) -> N
     detected_languages = detect_repository_languages(repo_root, exclude_patterns)
     
     # Low-level languages that should be highlighted
-    low_level_languages = {"C", "C++", "Rust", "ASM", "Perl"}
-    detected_low_level = detected_languages & low_level_languages
+    detected_low_level = detected_languages & LOW_LEVEL_LANGUAGES
     
     if detected_low_level:
         print(f"Auto-detected low-level languages: {', '.join(sorted(detected_low_level))}")
@@ -260,8 +269,8 @@ def auto_enable_detected_languages(config: Dict[str, Any], repo_root: Path) -> N
                 print(warning)
             print("\nNote: Regex-based parsing will be used (production-ready with full symbol extraction).")
             print("To enable structured parsing, install optional dependencies:")
-            print("  - pip install tree-sitter tree-sitter-rust tree-sitter-c tree-sitter-perl")
-            print("  - pip install libclang (for C/C++ with compiler-grade accuracy)")
+            for install_type, command in PARSER_INSTALL_INSTRUCTIONS.items():
+                print(f"  - {command}")
 
 
 def validate_output_path(output_dir: str) -> Path:
