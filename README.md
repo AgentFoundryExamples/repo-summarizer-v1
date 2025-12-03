@@ -106,33 +106,38 @@ The analyzer includes a **pluggable language registry** that provides determinis
 The registry includes built-in support for:
 
 **Full Support** (with structure parsing and dependency scanning):
-- **Python** (.py, .pyw) - AST-based parsing, import resolution
-- **JavaScript** (.js, .jsx, .mjs, .cjs) - Regex-based parsing, require/import resolution
-- **TypeScript** (.ts, .tsx) - Regex-based parsing, import resolution
+- **Python** (.py, .pyw) - AST-based parsing, import resolution, function/class extraction
+- **JavaScript** (.js, .jsx, .mjs, .cjs) - Regex-based parsing, require/import resolution, export extraction
+- **TypeScript** (.ts, .tsx) - Regex-based parsing, import resolution, export extraction
 
-**Enhanced Support** (with structured parsers available):
-- **C** (.c) - #include directives, stdlib header classification
-  - **Structured parsing**: libclang or tree-sitter (optional)
-  - **Capabilities**: Function/variable extraction, type analysis, AST traversal
-  - **Fallback**: Regex-based #include extraction (always available)
-- **C++** (.cpp, .cc, .cxx, .hpp, .hh, .hxx, .h) - #include directives, STL classification
-  - **Structured parsing**: libclang or tree-sitter (optional)
-  - **Capabilities**: Class/template extraction, namespace resolution, AST traversal
-  - **Fallback**: Regex-based #include extraction (always available)
-- **Rust** (.rs) - use/mod statements, std crate classification
-  - **Structured parsing**: tree-sitter (optional)
-  - **Capabilities**: Function/struct/trait extraction, module resolution
-  - **Fallback**: Regex-based use/mod extraction (always available)
-- **ASM** (.s, .S, .asm, .sx) - Assembly language with label extraction
+**Enhanced Support** (with symbol extraction and dependency scanning):
+- **C** (.c) - Function/struct/macro extraction, #include directives, stdlib header classification
+  - **Symbol extraction**: Functions, structs, macros (#define), global variables
+  - **Structured parsing**: libclang or tree-sitter (optional, for enhanced accuracy)
+  - **Fallback**: Regex-based extraction (always available, production-ready)
+  - **Produces**: Detailed file summaries with enumerated symbols matching Python fidelity
+- **C++** (.cpp, .cc, .cxx, .hpp, .hh, .hxx, .h) - Class/function/macro extraction, #include directives, STL classification
+  - **Symbol extraction**: Functions, classes, structs, macros (#define), global variables
+  - **Structured parsing**: libclang or tree-sitter (optional, for enhanced accuracy)
+  - **Fallback**: Regex-based extraction (always available, production-ready)
+  - **Produces**: Detailed file summaries with enumerated symbols matching Python fidelity
+- **Rust** (.rs) - Function/struct/trait/impl extraction, use/mod statements, std crate classification
+  - **Symbol extraction**: Functions (fn), structs, enums, traits, impl blocks, constants
+  - **Structured parsing**: tree-sitter (optional, for enhanced accuracy)
+  - **Fallback**: Regex-based extraction (always available, production-ready)
+  - **Produces**: Detailed file summaries with enumerated symbols matching Python fidelity
+- **ASM** (.s, .S, .asm, .sx) - Assembly label and symbol extraction, multiple syntax support
+  - **Symbol extraction**: .globl/.global labels (gas), global directives (NASM), PUBLIC directives (MASM)
   - **Parsing**: Regex-based (deterministic, no dependencies required)
-  - **Capabilities**: Extracts .globl/.global labels, NASM global, MASM PUBLIC directives
+  - **Capabilities**: Extracts functions (via .type @function), data objects (via .type @object), labels
   - **Supports**: GNU assembler (gas), NASM, MASM syntaxes
-  - **Symbol types**: Functions (via .type @function), data objects, generic labels
-- **Perl** (.pl, .pm, .perl) - use/require statements, core module classification
-  - **Structured parsing**: tree-sitter (optional)
-  - **Capabilities**: Subroutine/package extraction, module dependency tracking
-  - **Fallback**: Regex-based use/require extraction (always available)
+  - **Produces**: Detailed file summaries with enumerated .globl entries and function annotations
+- **Perl** (.pl, .pm, .perl) - Subroutine/package extraction, use/require statements, core module classification
+  - **Symbol extraction**: Subroutines (sub), packages (package)
+  - **Structured parsing**: tree-sitter (optional, for enhanced accuracy)
+  - **Fallback**: Regex-based extraction (always available, production-ready)
   - **Stdlib**: 60+ core Perl modules automatically classified
+  - **Produces**: Detailed file summaries with enumerated subs and packages matching Python fidelity
 
 **Dependency Scanning** (with import/include parsing and external classification):
 - **C#** (.cs) - using statements, System namespace classification
@@ -149,34 +154,40 @@ The registry includes built-in support for:
 
 ### Parser Architecture and Runtime Dependencies
 
-The analyzer uses a **layered parser architecture** for low-level language support:
+The analyzer uses a **layered parser architecture** for low-level language support with production-ready regex fallbacks:
 
-1. **Structured Parsers** (Optional, highest quality)
+1. **Regex Parsers** (Always available, production-ready)
+   - No dependencies required - works out of the box
+   - Fast, deterministic pattern-based extraction
+   - **Now supports symbol extraction** for C/C++/Rust/ASM/Perl
+   - Extracts:
+     - **C/C++**: Functions, classes/structs, macros (#define), global variables, #include directives
+     - **Rust**: Functions (fn), structs, enums, traits, impl blocks, constants, use/mod statements
+     - **ASM**: .globl/.global/.PUBLIC labels, function annotations (.type @function), data objects
+     - **Perl**: Subroutines (sub), packages (package), use/require statements
+   - Produces detailed file summaries with **symbol fidelity matching Python**
+   - Limitations: No semantic analysis, no type resolution, no cross-reference analysis
+
+2. **Structured Parsers** (Optional, enhanced accuracy)
    - **tree-sitter**: Fast, incremental parser for multiple languages
      - Installation: `pip install tree-sitter tree-sitter-<language>`
      - Supported: Rust, C, C++, Perl (with language-specific grammars)
-     - Benefits: Full AST access, accurate symbol extraction, semantic analysis
+     - Benefits: Full AST access, semantic analysis, accurate symbol extraction
    
    - **libclang**: Official Clang compiler frontend for C/C++
      - Installation: `pip install libclang` (+ system libclang library)
      - Supported: C, C++
      - Benefits: Compiler-grade accuracy, type resolution, macro expansion
 
-2. **Regex Fallback** (Always available, deterministic)
-   - No dependencies required
-   - Fast, pattern-based extraction
-   - Covers: #include directives, use/mod statements, .globl labels
-   - Limitations: No semantic analysis, no type information
-
 3. **Graceful Degradation**
-   - Parser unavailability detected at startup
-   - Automatic fallback to regex parsing
-   - Actionable error messages guide users to install optional dependencies
-   - No breaking changes - existing workflows continue to work
+   - Parser unavailability automatically detected at runtime
+   - Automatic fallback to regex parsing with full symbol extraction
+   - **No breaking changes** - existing workflows continue to work
+   - **No dependencies required** - regex parsers provide complete functionality
 
 **Performance Characteristics:**
-- **Structured parsers**: 10-50ms per file (cached), comprehensive symbol extraction
-- **Regex fallback**: 1-5ms per file, basic import/label extraction
+- **Regex parsers**: 1-5ms per file, complete symbol extraction, **production-ready**
+- **Structured parsers**: 10-50ms per file (cached), enhanced semantic analysis
 - **Cache layer**: Results cached per file content hash for instant repeat access
 - **Large files**: Configurable size threshold for skipping expensive parsing
 
@@ -762,6 +773,119 @@ Control the output format via `file_summary_config` in your configuration file:
       "stdlib": ["os", "sys", "pathlib.Path"],
       "third-party": ["requests", "django.http.HttpResponse"]
     }
+  }
+}
+```
+
+**Low-Level Languages (C/C++/Rust/ASM/Perl) - Detailed Level:**
+
+C File Example:
+```json
+{
+  "schema_version": "2.0",
+  "path": "src/utils.c",
+  "language": "C",
+  "role": "implementation",
+  "role_justification": "general implementation file (default classification)",
+  "summary": "C implementation file (role: implementation) [function add, function multiply, #define MAX_SIZE]",
+  "summary_text": "C implementation file (role: implementation) [function add, function multiply, #define MAX_SIZE]",
+  "metrics": {
+    "size_bytes": 1024,
+    "loc": 45,
+    "todo_count": 1,
+    "declaration_count": 5
+  },
+  "structure": {
+    "declarations": [
+      "function add",
+      "function multiply",
+      "function print_result",
+      "#define MAX_SIZE",
+      "global result_buffer"
+    ]
+  }
+}
+```
+
+Rust File Example:
+```json
+{
+  "schema_version": "2.0",
+  "path": "src/lib.rs",
+  "language": "Rust",
+  "role": "entry-point",
+  "role_justification": "common entry point name 'lib'",
+  "summary": "Rust library entry point (lib.rs) (role: entry-point) [fn main, struct User, trait Display]",
+  "summary_text": "Rust library entry point (lib.rs) (role: entry-point) [fn main, struct User, trait Display]",
+  "metrics": {
+    "size_bytes": 2048,
+    "loc": 85,
+    "todo_count": 2,
+    "declaration_count": 6
+  },
+  "structure": {
+    "declarations": [
+      "fn main",
+      "fn helper",
+      "struct User",
+      "enum Status",
+      "trait Display",
+      "impl Display"
+    ]
+  }
+}
+```
+
+Assembly File Example:
+```json
+{
+  "schema_version": "2.0",
+  "path": "src/startup.s",
+  "language": "ASM",
+  "role": "implementation",
+  "role_justification": "general implementation file (default classification)",
+  "summary": "ASM module for startup (role: implementation) [.globl _start, main, +2 more]",
+  "summary_text": "ASM module for startup (role: implementation) [.globl _start, main, +2 more]",
+  "metrics": {
+    "size_bytes": 512,
+    "loc": 40,
+    "todo_count": 0,
+    "declaration_count": 4
+  },
+  "structure": {
+    "declarations": [
+      "_start",
+      ".globl _start",
+      ".globl main",
+      "label cleanup"
+    ]
+  }
+}
+```
+
+Perl File Example:
+```json
+{
+  "schema_version": "2.0",
+  "path": "lib/MyModule.pm",
+  "language": "Perl",
+  "role": "implementation",
+  "role_justification": "general implementation file (default classification)",
+  "summary": "Perl module for MyModule (role: implementation) [sub new, sub process, package MyModule]",
+  "summary_text": "Perl module for MyModule (role: implementation) [sub new, sub process, package MyModule]",
+  "metrics": {
+    "size_bytes": 1536,
+    "loc": 60,
+    "todo_count": 3,
+    "declaration_count": 4
+  },
+  "structure": {
+    "declarations": [
+      "sub new",
+      "sub process",
+      "sub validate",
+      "package MyModule"
+    ]
   }
 }
 ```
