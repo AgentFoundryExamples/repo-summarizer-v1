@@ -344,6 +344,51 @@ If `file_summary_config.include_patterns` is empty or not specified, the analyze
 
 This automatically analyzes `.py`, `.js`, `.jsx`, `.mjs`, `.cjs` files without manual pattern configuration.
 
+#### Automatic Language Detection
+
+**New in v0.2.1**: The CLI now automatically detects low-level languages (C, C++, Rust, ASM, Perl) present in your repository and enables them without configuration changes:
+
+```bash
+repo-analyzer scan
+# Auto-detected low-level languages: C, C++, Rust
+# 
+# Optional parser availability:
+#   - C: tree-sitter Python package not installed (pip install tree-sitter)
+#   - C++: tree-sitter Python package not installed (pip install tree-sitter)
+#   - Rust: tree-sitter Python package not installed (pip install tree-sitter)
+# 
+# Note: Regex-based parsing will be used (production-ready with full symbol extraction).
+# To enable structured parsing, install optional dependencies:
+#   - pip install tree-sitter tree-sitter-rust tree-sitter-c tree-sitter-perl
+#   - pip install libclang (for C/C++ with compiler-grade accuracy)
+```
+
+**How It Works:**
+- The CLI performs a quick scan (up to 1000 files) to detect which languages are present
+- Low-level languages (C, C++, Rust, ASM, Perl) are automatically highlighted
+- Parser availability is checked and reported with installation instructions
+- Regex-based parsing is always available as a production-ready fallback
+
+**Benefits:**
+- **Zero configuration**: New languages work out of the box when detected
+- **Existing workflows preserved**: Python-only projects see no changes
+- **Mixed-language repos**: Seamless support for OpenSSL-scale projects
+- **Performance-conscious**: Quick detection scan with bounded file checks
+
+**Disabling Auto-Detection:**
+
+If you prefer explicit control, set `enabled_languages` in your configuration:
+
+```json
+{
+  "language_config": {
+    "enabled_languages": ["Python", "JavaScript"]
+  }
+}
+```
+
+This will disable auto-detection and analyze only the specified languages.
+
 #### Usage Examples
 
 **Example 1: Analyze only Python and JavaScript**
