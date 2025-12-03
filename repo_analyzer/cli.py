@@ -205,18 +205,24 @@ def detect_repository_languages(root_path: Path, exclude_patterns: List[str]) ->
                 # Get file extension
                 ext = os.path.splitext(filename)[1]
                 if ext:
-                    # Check if this extension is registered
-                    lang_name = registry.get_language_by_extension(ext)
+                    # Check if this extension is registered, regardless of enabled status
+                    lang_name = registry.get_language_by_extension_unfiltered(ext)
                     if lang_name:
                         detected_languages.add(lang_name)
+                        
+                        # Early termination: if we've detected all low-level languages, we can stop
+                        # This optimizes performance for large repositories
+                        if LOW_LEVEL_LANGUAGES.issubset(detected_languages):
+                            return detected_languages
                 
                 files_checked += 1
             
             if files_checked >= MAX_FILES_TO_CHECK_FOR_DETECTION:
                 break
                 
-    except (PermissionError, OSError):
-        # If we can't scan the directory, just return what we found so far
+    except (PermissionError, OSError) as e:
+        # If we can't scan a directory, log a warning and return what was found.
+        print(f"Warning: Could not scan part of the repository due to a file system error: {e}", file=sys.stderr)
         pass
     
     return detected_languages

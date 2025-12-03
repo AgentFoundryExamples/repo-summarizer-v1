@@ -94,8 +94,7 @@ class TestLanguageDetection:
         
         assert "Python" in detected
         # C should not be detected because build/ is excluded
-        # Note: If there are other C files, this might still be detected
-        # This test assumes build/ is the only location with C files
+        assert "C" not in detected
     
     def test_handles_empty_repository(self, tmp_path):
         """Test detection in an empty repository."""
