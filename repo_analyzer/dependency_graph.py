@@ -14,10 +14,12 @@ Supported languages:
 - JavaScript/TypeScript: import/require/dynamic import
 - C/C++: #include directives
 - Rust: use/mod statements
+- ASM: .include/%include/include directives (gas/NASM/MASM)
 - Go: import statements
 - Java: import statements
 - C#: using statements
 - Swift: import statements
+- Perl: use/require statements
 - HTML/CSS: href/src/url() references (local files only)
 - SQL: vendor-specific include statements
 """
@@ -602,6 +604,83 @@ def _parse_html_css_references(content: str, file_path: Path) -> List[str]:
     return references
 
 
+def _parse_asm_includes(content: str, file_path: Path) -> List[str]:
+    """
+    Parse assembly source for include/import directives.
+    
+    Supports multiple assembly syntaxes:
+    - GNU assembler (gas): .include "file.inc"
+    - NASM: %include "file.inc"
+    - MASM: include file.inc or include "file.inc"
+    
+    Args:
+        content: File content as string
+        file_path: Path to the file being parsed
+    
+    Returns:
+        List of included file paths
+    """
+    includes = []
+    
+    # GNU assembler (gas) .include directive
+    # Matches: .include "file.inc" or .include "path/to/file.s"
+    gas_include_pattern = r'^\s*\.include\s+["\']([^"\']+)["\']'
+    
+    # NASM %include directive
+    # Matches: %include "file.inc" or %include 'file.asm'
+    nasm_include_pattern = r'^\s*%include\s+["\']([^"\']+)["\']'
+    
+    # MASM include directive (supports both quoted and unquoted)
+    # Matches: include file.inc, INCLUDE path\file.inc, or include "file.inc"
+    masm_include_pattern = r'^\s*include\s+(?:["\']([^"\']+)["\']|([^\s;]+))'
+    
+    for line in content.split('\n'):
+        # Simple comment stripping - look for comment markers and check if in quotes
+        # Skip if line starts with comment
+        stripped = line.strip()
+        if stripped.startswith(';') or stripped.startswith('#') or stripped.startswith('//'):
+            continue
+        
+        # For inline comments, find the first comment marker that is not inside quotes.
+        stripped_line = line
+        in_single_quote = False
+        in_double_quote = False
+        for i, char in enumerate(line):
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+            elif char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+            elif not in_single_quote and not in_double_quote:
+                if char in (';', '#'):
+                    stripped_line = line[:i]
+                    break
+                if line[i:i+2] == '//':
+                    stripped_line = line[:i]
+                    break
+        
+        # Check gas .include
+        match = re.match(gas_include_pattern, stripped_line, re.IGNORECASE)
+        if match:
+            includes.append(match.group(1))
+            continue
+        
+        # Check NASM %include
+        match = re.match(nasm_include_pattern, stripped_line, re.IGNORECASE)
+        if match:
+            includes.append(match.group(1))
+            continue
+        
+        # Check MASM include (try both quoted and unquoted groups)
+        match = re.match(masm_include_pattern, stripped_line, re.IGNORECASE)
+        if match:
+            # Group 1 is quoted, group 2 is unquoted
+            include_file = match.group(1) if match.group(1) else match.group(2)
+            if include_file:
+                includes.append(include_file)
+    
+    return includes
+
+
 def _parse_sql_includes(content: str, file_path: Path) -> List[str]:
     """
     Parse SQL for include/import statements and schema references.
@@ -1019,6 +1098,66 @@ def _resolve_html_css_reference(
     return None
 
 
+def _resolve_asm_include(
+    include_path: str,
+    source_file: Path,
+    repo_root: Path
+) -> Optional[Path]:
+    """
+    Resolve an assembly include directive to an actual file path within the repository.
+    
+    Args:
+        include_path: Include string (e.g., 'macros.inc', '../common/defs.s')
+        source_file: Path to the file containing the include
+        repo_root: Repository root directory
+    
+    Returns:
+        Resolved Path or None if not found/external
+    """
+    # Validate input - reject potentially malicious paths
+    if '\x00' in include_path or '\n' in include_path or '\r' in include_path:
+        return None
+    
+    # Get the directory containing the source file
+    source_dir = source_file.parent
+    
+    # Normalize repo_root to absolute path
+    repo_root = repo_root.resolve()
+    
+    # Try relative to source file directory first (most common for quoted includes)
+    try:
+        relative_path = (source_dir / include_path).resolve(strict=False)
+        # SECURITY: Ensure resolved path is within repository
+        relative_path.relative_to(repo_root)
+        if relative_path.exists() and relative_path.is_file():
+            return relative_path
+    except (ValueError, OSError):
+        pass
+    
+    # Try relative to repo root
+    try:
+        repo_path = (repo_root / include_path).resolve(strict=False)
+        # SECURITY: Ensure resolved path is within repository
+        repo_path.relative_to(repo_root)
+        if repo_path.exists() and repo_path.is_file():
+            return repo_path
+    except (ValueError, OSError):
+        pass
+    
+    # Try common assembly include directories
+    for asm_dir in ['include', 'inc', 'asm', 'src']:
+        try:
+            candidate = (repo_root / asm_dir / include_path).resolve(strict=False)
+            # SECURITY: Ensure resolved path is within repository
+            candidate.relative_to(repo_root)
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        except (ValueError, OSError):
+            continue
+    
+    return None
+
+
 def _resolve_sql_include(
     include_path: str,
     source_file: Path,
@@ -1327,6 +1466,15 @@ def _scan_file_dependencies_with_external(
             elif dep_type == 'third-party':
                 if module not in external_deps['third-party']:
                     external_deps['third-party'].append(module)
+    
+    elif suffix in ['.s', '.S', '.asm', '.sx']:
+        language = 'ASM'
+        includes = _parse_asm_includes(content, file_path)
+        for include_path in includes:
+            resolved = _resolve_asm_include(include_path, file_path, repo_root)
+            if resolved:
+                dependencies.append(resolved)
+            # Assembly includes are typically project-specific, no external classification
     
     return dependencies, external_deps
 
