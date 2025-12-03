@@ -210,9 +210,9 @@ def get_parser_capability(language: str) -> ParserCapability:
                 available=True
             )
         else:
-            # Fallback to regex
+            # Fallback to regex - can extract symbols with regex patterns
             capability = ParserCapability(
-                can_extract_symbols=False,
+                can_extract_symbols=True,  # Regex can extract subs and packages
                 can_extract_dependencies=True,  # Regex can extract use/require
                 can_extract_asm_labels=False,
                 parser_type=ParserType.REGEX_FALLBACK,
