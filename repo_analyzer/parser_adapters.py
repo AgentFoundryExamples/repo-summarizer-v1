@@ -24,7 +24,7 @@ Parser Availability:
 
 from typing import Dict, List, Optional, Set, Any, Tuple
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import re
 
@@ -71,25 +71,12 @@ class ParsedSymbols:
         warnings: List of parsing warnings
         parser_used: Which parser was used for extraction
     """
-    functions: List[str] = None
-    classes: List[str] = None
-    variables: List[str] = None
-    asm_labels: List[str] = None
-    warnings: List[str] = None
+    functions: List[str] = field(default_factory=list)
+    classes: List[str] = field(default_factory=list)
+    variables: List[str] = field(default_factory=list)
+    asm_labels: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
     parser_used: ParserType = ParserType.NONE
-    
-    def __post_init__(self):
-        """Initialize empty lists if None."""
-        if self.functions is None:
-            self.functions = []
-        if self.classes is None:
-            self.classes = []
-        if self.variables is None:
-            self.variables = []
-        if self.asm_labels is None:
-            self.asm_labels = []
-        if self.warnings is None:
-            self.warnings = []
 
 
 # Global cache for parser availability checks
@@ -121,25 +108,17 @@ def _check_libclang_available() -> Tuple[bool, Optional[str]]:
     """
     try:
         import clang.cindex
-        # Try to access Config to verify library can be loaded
-        # This may raise if libclang shared library is not found
-        try:
-            config = clang.cindex.Config()
-            # Verify the library can be loaded by attempting to get library file
-            # Wrap in try-except as attribute access may raise even if attribute exists
-            try:
-                if hasattr(config, 'library_file'):
-                    _ = config.library_file
-            except Exception:
-                # Attribute exists but accessing it raised an exception
-                pass
+        # Try to create a Config object and access its library_file attribute.
+        # This will fail if the libclang shared library is not found or cannot be loaded.
+        config = clang.cindex.Config()
+        if config.library_file:
             return True, None
-        except Exception as e:
-            return False, f"libclang library load failed: {str(e)}"
+        else:
+            return False, "libclang library file not found. Check installation and environment variables (e.g., LD_LIBRARY_PATH)."
     except ImportError:
         return False, "libclang Python package not installed (pip install libclang)"
     except Exception as e:
-        return False, f"libclang import failed: {str(e)}"
+        return False, f"libclang library load failed: {str(e)}"
 
 
 def get_parser_capability(language: str) -> ParserCapability:
@@ -271,82 +250,47 @@ def parse_asm_symbols(content: str, file_path: Path) -> ParsedSymbols:
     """
     result = ParsedSymbols(parser_used=ParserType.REGEX_FALLBACK)
     
-    # Pattern for GNU assembler .globl/.global directives
-    # Matches: .globl symbol_name or .global symbol_name
+    # Regex patterns
     globl_pattern = re.compile(r'^\s*\.glob(?:al|l)\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE)
-    
-    # Pattern for .type directives (indicates function vs object)
-    # Matches: .type symbol_name, @function or .type symbol_name, %function
     type_pattern = re.compile(r'^\s*\.type\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*[@%](function|object)', re.MULTILINE)
-    
-    # Pattern for NASM global directives
-    # Matches: global symbol_name
     nasm_global_pattern = re.compile(r'^\s*global\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE | re.IGNORECASE)
-    
-    # Pattern for MASM PUBLIC directives
-    # Matches: PUBLIC symbol_name
     masm_public_pattern = re.compile(r'^\s*PUBLIC\s+([A-Za-z_][A-Za-z0-9_]*)', re.MULTILINE | re.IGNORECASE)
-    
-    # Pattern for label definitions
-    # Matches: label_name: (potentially indented, on its own line or start of line)
     label_pattern = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*):(?:\s|$)', re.MULTILINE)
     
-    # Track symbols we've seen to avoid duplicates
-    seen_symbols: Set[str] = set()
+    # Pass 1: Extract type annotations
+    type_annotations: Dict[str, str] = {m.group(1): m.group(2) for m in type_pattern.finditer(content)}
     
-    # First pass: Extract .type annotations to understand symbol types
-    type_annotations: Dict[str, str] = {}
-    for match in type_pattern.finditer(content):
-        symbol = match.group(1)
-        sym_type = match.group(2)
-        type_annotations[symbol] = sym_type
-    
-    # Second pass: Extract .globl/.global symbols and categorize them
+    # Pass 2: Extract all global/public symbols from all syntaxes
+    global_symbols: Dict[str, str] = {}
     for match in globl_pattern.finditer(content):
-        symbol = match.group(1)
-        if symbol not in seen_symbols:
-            result.asm_labels.append(f".globl {symbol}")
-            seen_symbols.add(symbol)
-            
-            # Categorize based on type annotation
-            if symbol in type_annotations:
-                if type_annotations[symbol] == "function":
-                    result.functions.append(symbol)
-                else:
-                    result.variables.append(symbol)
-    
-    # Extract NASM global directives
+        global_symbols.setdefault(match.group(1), ".globl")
     for match in nasm_global_pattern.finditer(content):
-        symbol = match.group(1)
-        if symbol not in seen_symbols:
-            result.asm_labels.append(f"global {symbol}")
-            seen_symbols.add(symbol)
-    
-    # Extract MASM PUBLIC directives
+        global_symbols.setdefault(match.group(1), "global")
     for match in masm_public_pattern.finditer(content):
-        symbol = match.group(1)
-        if symbol not in seen_symbols:
-            result.asm_labels.append(f"PUBLIC {symbol}")
-            seen_symbols.add(symbol)
-    
-    # Extract standalone label definitions (not already captured)
+        global_symbols.setdefault(match.group(1), "PUBLIC")
+
+    # Pass 3: Categorize global symbols and add to results
+    for symbol, directive in global_symbols.items():
+        result.asm_labels.append(f"{directive} {symbol}")
+        if symbol in type_annotations:
+            if type_annotations[symbol] == "function":
+                result.functions.append(symbol)
+            else:
+                result.variables.append(symbol)
+
+    # Pass 4: Extract standalone labels that are not already global
+    seen_labels = set(global_symbols.keys())
     for match in label_pattern.finditer(content):
         label = match.group(1)
-        # Skip if already processed
-        if label in seen_symbols:
-            continue
-        
-        # Check if this label has type annotation
-        if label in type_annotations:
-            if type_annotations[label] == "function":
-                result.functions.append(label)
+        if label not in seen_labels:
+            seen_labels.add(label)
+            if label in type_annotations:
+                if type_annotations[label] == "function":
+                    result.functions.append(label)
+                else:
+                    result.variables.append(label)
             else:
-                result.variables.append(label)
-            seen_symbols.add(label)
-        else:
-            # Without type annotation or directive, it's a local label
-            result.asm_labels.append(f"label {label}")
-            seen_symbols.add(label)
+                result.asm_labels.append(f"label {label}")
     
     return result
 
