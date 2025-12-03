@@ -42,7 +42,22 @@
       "*.ts",      // TypeScript files
       "*.java",    // Java files
       "*.go",      // Go files
-      "*.rs"       // Rust files
+      "*.rs",      // Rust files
+      "*.c",       // C files
+      "*.cpp",     // C++ files
+      "*.cc",      // C++ files (alternative extension)
+      "*.cxx",     // C++ files (alternative extension)
+      "*.h",       // C/C++ header files
+      "*.hpp",     // C++ header files
+      "*.hh",      // C++ header files (alternative)
+      "*.hxx",     // C++ header files (alternative)
+      "*.s",       // Assembly files (gas lowercase)
+      "*.S",       // Assembly files (gas uppercase, with preprocessing)
+      "*.asm",     // Assembly files (NASM/MASM)
+      "*.sx",      // Assembly files (gas with preprocessing)
+      "*.pl",      // Perl scripts
+      "*.pm",      // Perl modules
+      "*.perl"     // Perl files (alternative extension)
     ],
 
     // Detail level controls the amount of information in output
