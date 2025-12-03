@@ -114,7 +114,52 @@ C_CPP_STDLIB = {
     'ranges', 'concepts', 'coroutine', 'compare', 'version', 'source_location',
     # POSIX/system headers (common but not strictly standard)
     'unistd.h', 'fcntl.h', 'sys/types.h', 'sys/stat.h', 'dirent.h', 'pthread.h',
+    'sys/socket.h', 'netinet/in.h', 'arpa/inet.h', 'sys/time.h', 'sys/mman.h',
+    'sys/wait.h', 'sys/ioctl.h', 'sys/select.h', 'sys/uio.h', 'termios.h',
+    'syslog.h', 'netdb.h', 'poll.h', 'sys/epoll.h', 'sys/eventfd.h',
+    # Compiler builtins (GCC/Clang)
+    'stdatomic.h', 'stdalign.h', 'stdnoreturn.h', 'threads.h',
+    # Windows system headers (common on Windows platforms)
+    'windows.h', 'winsock2.h', 'ws2tcpip.h', 'process.h', 'direct.h', 'io.h',
 }
+
+# Common third-party C/C++ libraries (for better classification)
+C_CPP_THIRD_PARTY_KNOWN = {
+    # Boost library
+    'boost/', 'boost/algorithm', 'boost/asio', 'boost/bind', 'boost/filesystem',
+    'boost/format', 'boost/function', 'boost/lambda', 'boost/optional',
+    'boost/shared_ptr', 'boost/smart_ptr', 'boost/thread', 'boost/regex',
+    # OpenSSL
+    'openssl/', 'openssl/ssl.h', 'openssl/crypto.h', 'openssl/err.h',
+    'openssl/evp.h', 'openssl/rsa.h', 'openssl/sha.h', 'openssl/md5.h',
+    # Zlib
+    'zlib.h', 'zconf.h',
+    # libcurl
+    'curl/', 'curl/curl.h',
+    # SQLite
+    'sqlite3.h',
+    # libuv
+    'uv.h',
+    # Google Test
+    'gtest/', 'gtest/gtest.h', 'gmock/', 'gmock/gmock.h',
+    # Catch2
+    'catch2/', 'catch.hpp',
+    # Protocol Buffers
+    'google/protobuf/',
+    # Qt framework
+    'Qt', 'QObject', 'QString', 'QWidget',
+    # GTK
+    'gtk/', 'glib.h', 'glib/', 'gtk/gtk.h',
+    # SDL
+    'SDL.h', 'SDL2/', 'SDL/',
+    # libpng, libjpeg
+    'png.h', 'jpeglib.h',
+    # FFTW
+    'fftw3.h',
+    # OpenGL/Vulkan
+    'GL/', 'GLES/', 'vulkan/',
+}
+
 
 # Rust standard library crates and modules
 # Source: https://doc.rust-lang.org/std/
@@ -243,10 +288,50 @@ PERL_STDLIB = {
     # Misc utilities
     'Benchmark', 'Carp', 'Exporter', 'ExtUtils::MakeMaker', 'AutoLoader',
     'SelfLoader', 'Symbol', 'Sys::Hostname', 'Sys::Syslog',
+    # Additional core modules
+    'B', 'B::Deparse', 'CGI', 'Class::Struct', 'Devel::Peek', 'DirHandle',
+    'Dumpvalue', 'Fcntl', 'File::Glob', 'FileCache', 'Getopt::Std',
+    'I18N::Collate', 'I18N::LangTags', 'I18N::Langinfo', 'IPC::Msg',
+    'IPC::Semaphore', 'IPC::SysV', 'Module::CoreList', 'Module::Load',
+    'Module::Loaded', 'NEXT', 'Opcode', 'Pod::Html', 'Pod::Man', 'Pod::Text',
+    'Safe', 'Search::Dict', 'SelectSaver', 'Term::ANSIColor', 'Term::Cap',
+    'Term::Complete', 'Term::ReadLine', 'Thread', 'Thread::Queue',
+    'Thread::Semaphore', 'Unicode::Collate', 'Unicode::Normalize',
+    'XSLoader', 'autodie', 'bigint', 'bignum', 'bigrat', 'blib', 'bytes',
+    'charnames', 'diagnostics', 'encoding', 'integer', 'less', 'locale',
+    'open', 'ops', 'overload', 'overloading', 're', 'sigtrap', 'sort',
+    'subs', 'threads', 'threads::shared', 'vmsish',
 }
 
 # Common Perl pragmas (lowercase, no ::) - subset of PERL_STDLIB
-PERL_PRAGMAS = {'strict', 'warnings', 'utf8', 'vars', 'constant', 'lib', 'feature'}
+PERL_PRAGMAS = {'strict', 'warnings', 'utf8', 'vars', 'constant', 'lib', 'feature',
+                'autodie', 'bigint', 'bignum', 'bigrat', 'blib', 'bytes', 'charnames',
+                'diagnostics', 'encoding', 'integer', 'less', 'locale', 'open', 'ops',
+                'overload', 'overloading', 're', 'sigtrap', 'sort', 'subs', 'vmsish'}
+
+# Common CPAN modules (third-party, for classification hints)
+# This is not exhaustive but helps classify well-known modules
+PERL_CPAN_KNOWN = {
+    'Moose', 'Moo', 'Mouse', 'Class::Accessor', 'Class::Method::Modifiers',
+    'Role::Tiny', 'namespace::autoclean', 'namespace::clean', 'MooseX::',
+    'Try::Tiny', 'Syntax::Keyword::Try', 'Future', 'IO::Async',
+    'Plack', 'PSGI', 'Dancer', 'Dancer2', 'Mojolicious', 'Catalyst',
+    'DBIx::Class', 'Rose::DB', 'Tangram', 'Class::DBI',
+    'DateTime', 'DateTime::Format::', 'Date::Manip', 'Date::Calc',
+    'Template', 'Template::Toolkit', 'HTML::Mason', 'Text::Xslate',
+    'Cpanel::JSON::XS', 'JSON::XS', 'JSON::MaybeXS', 'JSON::PP',
+    'XML::LibXML', 'XML::Simple', 'XML::Twig', 'XML::Parser',
+    'YAML', 'YAML::XS', 'YAML::Tiny', 'Config::Tiny', 'Config::General',
+    'Log::Log4perl', 'Log::Dispatch', 'Log::Any',
+    'Getopt::Long::Descriptive', 'Getopt::Kingpin',
+    'Path::Tiny', 'Path::Class', 'File::Slurp', 'File::Slurper',
+    'LWP::UserAgent', 'HTTP::Tiny', 'Furl', 'Mojo::UserAgent',
+    'AnyEvent', 'Coro', 'POE',
+    'Test2', 'Test::More', 'Test::Most', 'Test::Exception', 'Test::Deep',
+    'CHI', 'Cache::Memcached', 'Cache::FastMmap',
+    'Parallel::ForkManager', 'MCE', 'Parallel::Loops',
+}
+
 
 # Assembly languages don't have standard library imports
 # Assembly source files include headers or other .inc/.s files
@@ -375,7 +460,13 @@ def classify_c_cpp_import(header_name: str) -> DependencyType:
     if header_name in C_CPP_STDLIB:
         return "stdlib"
     
-    # Everything else is third-party
+    # Check for known third-party library patterns
+    # This helps distinguish between unknown third-party and potentially intra-repo headers
+    for known_lib in C_CPP_THIRD_PARTY_KNOWN:
+        if header_name.startswith(known_lib) or header_name == known_lib:
+            return "third-party"
+    
+    # Everything else is third-party (could be intra-repo or external, but conservative classification)
     return "third-party"
 
 
@@ -610,7 +701,13 @@ def classify_perl_import(module_name: str) -> DependencyType:
         if module_name in PERL_PRAGMAS:
             return "stdlib"
     
-    # Everything else is third-party
+    # Check for known CPAN modules (helps with classification confidence)
+    # Check if module name starts with any known CPAN module pattern
+    for cpan_module in PERL_CPAN_KNOWN:
+        if module_name == cpan_module or module_name.startswith(cpan_module):
+            return "third-party"
+    
+    # Everything else is third-party (could be local or CPAN, but conservative classification)
     return "third-party"
 
 
